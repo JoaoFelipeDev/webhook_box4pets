@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: shopify-airtable-sync
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: SHOPIFY_WEBHOOK_SECRET
+        sync: false
+      - key: AIRTABLE_API_KEY
+        sync: false
+      - key: AIRTABLE_BASE_ID
+        sync: false
