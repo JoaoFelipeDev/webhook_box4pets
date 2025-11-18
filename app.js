@@ -102,6 +102,26 @@ app.post("/webhook/orders/create", async (req, res) => {
       }
     }
 
+    // Função para remover campos vazios (especialmente importante para campos select)
+    // Campos de texto podem ser vazios, mas campos select não podem criar novas opções vazias
+    function removerCamposVazios(campos) {
+      const camposLimpos = {};
+      // Lista de campos que podem ser select e não devem ser enviados vazios
+      const camposSelectPossiveis = ["Teste", "CRMV", "TAG"];
+      
+      for (const [chave, valor] of Object.entries(campos)) {
+        // Se for um campo select possível e estiver vazio, não inclui
+        if (camposSelectPossiveis.includes(chave) && (valor === "" || valor === null || valor === undefined)) {
+          continue;
+        }
+        // Para outros campos, remove apenas se for null ou undefined (mantém string vazia para campos de texto)
+        if (valor !== null && valor !== undefined) {
+          camposLimpos[chave] = valor;
+        }
+      }
+      return camposLimpos;
+    }
+
     // Formata a data para o Airtable
     const dataFormatada = formatarDataParaAirtable(order.created_at);
     
@@ -109,37 +129,40 @@ app.post("/webhook/orders/create", async (req, res) => {
     const camposBase = {
       Nome: customer.first_name || "",
       Sobrenome: customer.last_name || "",
-      Teste: "", // campo disponível para uso futuro
       Email: customer.email || order.email || "",
       Telefone: telefone,
       Endereço: enderecoCompleto,
       CEP: firstAddress.zip || "",
       Cidade: firstAddress.city || "",
       Estado: firstAddress.province || "",
-      CRMV: "", // opcional, você pode deixar fixo ou buscar em outro lugar
       "Nome da Clínica ou Hospital": nomeClinicaHospital,
       TAG: "Shopify",
       "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
     };
     
-    // Adiciona campos opcionais que podem ter nomes diferentes
-    // Tenta diferentes variações do nome do campo "Pedido"
-    // Se o campo "Pedido" não existir, o código tentará sem ele automaticamente
+    // Adiciona campos opcionais apenas se tiverem valor (para evitar problemas com campos select)
     if (order.order_number) {
-      // Tenta primeiro com "Pedido" (nome mais comum)
-      // Se não funcionar, o tratamento de erro tentará sem este campo
       camposBase["Pedido"] = String(order.order_number);
     }
+    
+    // Adiciona campo Teste apenas se necessário (comentado para evitar problemas com select)
+    // Teste: "", // campo disponível para uso futuro - não enviar vazio se for select
+    
+    // Adiciona CRMV apenas se tiver valor (comentado para evitar problemas com select)
+    // CRMV: "", // opcional - não enviar vazio se for select
     
     // Adiciona o campo de data
     if (dataFormatada) {
       camposBase["Data da Compra"] = dataFormatada;
     }
     
+    // Remove campos vazios antes de enviar (importante para campos select)
+    const camposLimpos = removerCamposVazios(camposBase);
+    
     const airtableRecord = {
       records: [
         {
-          fields: camposBase
+          fields: camposLimpos
         }
       ]
     };
@@ -164,14 +187,26 @@ app.post("/webhook/orders/create", async (req, res) => {
       console.error("❌ Erro ao salvar no Airtable:", JSON.stringify(data, null, 2));
       console.error("📋 Campos enviados:", Object.keys(airtableRecord.records[0].fields));
       
-      // Se o erro for de campo desconhecido, tenta remover campos problemáticos
-      if (data.error && data.error.type === 'UNKNOWN_FIELD_NAME') {
+      // Se o erro for de campo desconhecido ou select inválido, tenta remover campos problemáticos
+      if (data.error && (data.error.type === 'UNKNOWN_FIELD_NAME' || data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS')) {
         const campoErro = data.error.message.match(/"([^"]+)"/)?.[1];
-        console.warn(`⚠️ Campo desconhecido: "${campoErro}". Tentando remover campos problemáticos...`);
+        const tipoErro = data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS' ? 'select inválido' : 'campo desconhecido';
+        console.warn(`⚠️ ${tipoErro}: "${campoErro || 'campo select'}". Tentando remover campos problemáticos...`);
         
         // Lista de campos que podem causar problemas (tenta remover um por vez)
-        const camposProblema = ["Pedido", "Data da Compra", "A # Pedido", "# Pedido"];
+        const camposProblema = ["Pedido", "Data da Compra", "A # Pedido", "# Pedido", "Teste", "CRMV"];
         let camposLimpos = { ...airtableRecord.records[0].fields };
+        
+        // Se for erro de select, remove campos que podem ser select e estão vazios ou com valores inválidos
+        if (data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
+          const camposSelect = ["Teste", "CRMV", "TAG", "Status de Pagamento", "Nome da Clínica ou Hospital"];
+          camposSelect.forEach(campo => {
+            if (camposLimpos[campo] === "" || camposLimpos[campo] === null || camposLimpos[campo] === undefined) {
+              delete camposLimpos[campo];
+              console.log(`🗑️ Removendo campo select vazio: "${campo}"`);
+            }
+          });
+        }
         
         // Remove o campo que causou o erro
         if (campoErro) {
@@ -190,6 +225,15 @@ app.post("/webhook/orders/create", async (req, res) => {
             }
           });
         }
+        
+        // Remove TODOS os campos vazios antes de tentar novamente (para evitar problemas com select)
+        const camposLimposFinal = {};
+        for (const [chave, valor] of Object.entries(camposLimpos)) {
+          if (valor !== "" && valor !== null && valor !== undefined) {
+            camposLimposFinal[chave] = valor;
+          }
+        }
+        camposLimpos = camposLimposFinal;
         
         console.log("🔄 Tentando com campos:", Object.keys(camposLimpos));
         
@@ -213,9 +257,14 @@ app.post("/webhook/orders/create", async (req, res) => {
           return res.status(200).send("OK (alguns campos removidos)");
         } else {
           console.error("❌ Erro mesmo após remover campos:", JSON.stringify(retryData, null, 2));
-          if (retryData.error && retryData.error.type === 'UNKNOWN_FIELD_NAME') {
-            const novoCampoErro = retryData.error.message.match(/"([^"]+)"/)?.[1];
-            console.error(`❌ Outro campo problemático encontrado: "${novoCampoErro}"`);
+          if (retryData.error) {
+            if (retryData.error.type === 'UNKNOWN_FIELD_NAME') {
+              const novoCampoErro = retryData.error.message.match(/"([^"]+)"/)?.[1];
+              console.error(`❌ Outro campo problemático encontrado: "${novoCampoErro}"`);
+            } else if (retryData.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
+              console.error("❌ Erro com campo select: algum campo select está recebendo valor inválido ou vazio.");
+              console.error("💡 Verifique se os campos 'Teste', 'CRMV' ou outros campos select existem e aceitam valores vazios.");
+            }
           }
         }
       }
