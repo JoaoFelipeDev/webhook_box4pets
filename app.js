@@ -88,16 +88,22 @@ app.post("/webhook/orders/create", async (req, res) => {
       return statusMap[financialStatus] || "Pendente";
     }
 
-    // Função para formatar data para o Airtable (formato ISO 8601)
+    // Função para formatar data para o Airtable
+    // Tenta diferentes formatos: apenas data (YYYY-MM-DD) ou data com hora (ISO 8601)
     function formatarDataParaAirtable(dateString) {
       if (!dateString) return "";
-      // O Airtable aceita formato ISO 8601: YYYY-MM-DD ou YYYY-MM-DDTHH:mm:ss.sssZ
-      // O Shopify já envia no formato correto, mas vamos garantir
       try {
         const date = new Date(dateString);
         if (isNaN(date.getTime())) return "";
-        // Retorna no formato ISO 8601 completo
-        return date.toISOString();
+        
+        // Tenta primeiro apenas a data (YYYY-MM-DD) - formato mais comum para campos de data simples
+        const ano = date.getFullYear();
+        const mes = String(date.getMonth() + 1).padStart(2, '0');
+        const dia = String(date.getDate()).padStart(2, '0');
+        const apenasData = `${ano}-${mes}-${dia}`;
+        
+        // Retorna apenas a data (sem hora) - mais compatível com campos de data simples no Airtable
+        return apenasData;
       } catch (e) {
         console.warn("⚠️ Erro ao formatar data:", dateString, e);
         return dateString; // Retorna o original se não conseguir formatar
@@ -310,15 +316,36 @@ app.post("/webhook/orders/create", async (req, res) => {
       console.error("❌ Erro ao salvar no Airtable:", JSON.stringify(data, null, 2));
       console.error("📋 Campos enviados:", Object.keys(airtableRecord.records[0].fields));
       
-      // Se o erro for de campo desconhecido ou select inválido, tenta remover campos problemáticos
-      if (data.error && (data.error.type === 'UNKNOWN_FIELD_NAME' || data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS')) {
+      // Se o erro for de campo desconhecido, select inválido ou valor inválido, tenta remover campos problemáticos
+      if (data.error && (data.error.type === 'UNKNOWN_FIELD_NAME' || 
+                         data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS' ||
+                         data.error.type === 'INVALID_VALUE_FOR_COLUMN')) {
         const campoErro = data.error.message.match(/"([^"]+)"/)?.[1];
-        const tipoErro = data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS' ? 'select inválido' : 'campo desconhecido';
-        console.warn(`⚠️ ${tipoErro}: "${campoErro || 'campo select'}". Tentando remover campos problemáticos...`);
+        let tipoErro = 'campo desconhecido';
+        if (data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
+          tipoErro = 'select inválido';
+        } else if (data.error.type === 'INVALID_VALUE_FOR_COLUMN') {
+          tipoErro = 'valor inválido';
+        }
+        console.warn(`⚠️ ${tipoErro}: "${campoErro || 'campo'}". Tentando remover campos problemáticos...`);
         
         // Lista de campos que podem causar problemas (tenta remover um por vez)
         const camposProblema = ["Pedido", "Data da Compra", "A # Pedido", "# Pedido", "Teste", "CRMV"];
         let camposLimpos = { ...airtableRecord.records[0].fields };
+        
+        // Se for erro de valor inválido (ex: formato de data incorreto)
+        if (data.error.type === 'INVALID_VALUE_FOR_COLUMN') {
+          // Remove o campo que causou o erro
+          if (campoErro && camposLimpos[campoErro]) {
+            delete camposLimpos[campoErro];
+            console.log(`🗑️ Removendo campo com valor inválido: "${campoErro}"`);
+          }
+          // Se for "Data da Compra", remove também
+          if (campoErro === "Data da Compra" || data.error.message.includes("Data da Compra")) {
+            delete camposLimpos["Data da Compra"];
+            console.log(`🗑️ Removendo campo "Data da Compra" (formato de data inválido)`);
+          }
+        }
         
         // Se for erro de select, remove campos que podem ser select (mesmo com valores)
         if (data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
