@@ -73,17 +73,19 @@ app.post("/webhook/orders/create", async (req, res) => {
       "";
 
     // Função para converter status de pagamento para português
+    // Apenas "Pago" e "Pendente" são opções válidas no Airtable
     function traduzirStatusPagamento(financialStatus) {
       const statusMap = {
         "pending": "Pendente",
         "paid": "Pago",
-        "authorized": "Autorizado",
-        "partially_paid": "Parcialmente Pago",
-        "refunded": "Reembolsado",
-        "voided": "Cancelado",
-        "partially_refunded": "Parcialmente Reembolsado"
+        "authorized": "Pago", // Autorizado = já foi aprovado, considera como pago
+        "partially_paid": "Pago", // Parcialmente pago = tem pagamento, considera como pago
+        "refunded": "Pendente", // Reembolsado = não está mais pago
+        "voided": "Pendente", // Cancelado = não está pago
+        "partially_refunded": "Pendente" // Parcialmente reembolsado = não está totalmente pago
       };
-      return statusMap[financialStatus] || financialStatus || "Desconhecido";
+      // Retorna apenas "Pago" ou "Pendente" (opções válidas no Airtable)
+      return statusMap[financialStatus] || "Pendente";
     }
 
     // Função para formatar data para o Airtable (formato ISO 8601)
@@ -226,18 +228,23 @@ app.post("/webhook/orders/create", async (req, res) => {
         // Se for erro de select, remove campos que podem ser select (mesmo com valores)
         if (data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
           const camposSelect = ["Teste", "CRMV", "TAG", "Status de Pagamento", "Nome da Clínica ou Hospital"];
-          // Extrai o valor que causou o erro (pode ter aspas escapadas como ""Shopify"")
-          const valorErroSelect = data.error.message.match(/option "?([^"]+)"?/)?.[1] || 
-                                  data.error.message.match(/""([^"]+)""/)?.[1];
+          // Extrai o valor que causou o erro (pode ter aspas escapadas como ""Cancelado"" ou ""Shopify"")
+          // Tenta diferentes padrões de aspas escapadas
+          const valorErroSelect = data.error.message.match(/""([^"]+)""/)?.[1] || 
+                                  data.error.message.match(/option "([^"]+)"/)?.[1] ||
+                                  data.error.message.match(/option "?([^"]+)"?/)?.[1];
           
           console.log(`🔍 Valor que causou erro no select: "${valorErroSelect}"`);
+          console.log(`🔍 Mensagem completa do erro: "${data.error.message}"`);
           
           // Tenta identificar qual campo tem esse valor
           let campoEncontrado = null;
           if (valorErroSelect) {
+            const valorLimpo = valorErroSelect.trim();
             for (const [chave, valor] of Object.entries(camposLimpos)) {
-              if (camposSelect.includes(chave) && String(valor).trim() === valorErroSelect.trim()) {
+              if (camposSelect.includes(chave) && String(valor).trim() === valorLimpo) {
                 campoEncontrado = chave;
+                console.log(`✅ Campo identificado: "${chave}" com valor "${valor}"`);
                 break;
               }
             }
@@ -248,20 +255,39 @@ app.post("/webhook/orders/create", async (req, res) => {
             delete camposLimpos[campoEncontrado];
             console.log(`🗑️ Removendo campo select com valor inválido: "${campoEncontrado}" (valor: "${valorErroSelect}")`);
           } else {
-            // Se não conseguir identificar, remove TAG primeiro (mais comum causar esse erro)
-            // e depois outros campos select se necessário
-            if (camposLimpos["TAG"]) {
-              const valorTag = camposLimpos["TAG"];
-              delete camposLimpos["TAG"];
-              console.log(`🗑️ Removendo campo TAG (valor inválido provável: "${valorTag || valorErroSelect}")`);
+            // Se não conseguir identificar, tenta remover campos específicos baseado no valor
+            const valorLimpo = valorErroSelect ? valorErroSelect.trim() : "";
+            
+            // Se o valor for "Cancelado", remove "Status de Pagamento"
+            if (valorLimpo === "Cancelado" && camposLimpos["Status de Pagamento"]) {
+              delete camposLimpos["Status de Pagamento"];
+              console.log(`🗑️ Removendo campo "Status de Pagamento" (valor inválido: "Cancelado")`);
             }
-            // Remove outros campos select suspeitos
-            camposSelect.forEach(campo => {
-              if (camposLimpos[campo] && campo !== "TAG") {
-                delete camposLimpos[campo];
-                console.log(`🗑️ Removendo campo select suspeito: "${campo}"`);
+            // Se o valor for "Shopify", remove "TAG"
+            else if (valorLimpo === "Shopify" && camposLimpos["TAG"]) {
+              delete camposLimpos["TAG"];
+              console.log(`🗑️ Removendo campo TAG (valor inválido: "Shopify")`);
+            }
+            // Se não conseguir identificar pelo valor, remove campos select comuns
+            else {
+              // Remove "Status de Pagamento" primeiro (mais comum causar esse erro)
+              if (camposLimpos["Status de Pagamento"]) {
+                delete camposLimpos["Status de Pagamento"];
+                console.log(`🗑️ Removendo campo "Status de Pagamento" (valor inválido provável)`);
               }
-            });
+              // Remove TAG se existir
+              if (camposLimpos["TAG"]) {
+                delete camposLimpos["TAG"];
+                console.log(`🗑️ Removendo campo TAG (valor inválido provável)`);
+              }
+              // Remove outros campos select suspeitos
+              camposSelect.forEach(campo => {
+                if (camposLimpos[campo] && campo !== "TAG" && campo !== "Status de Pagamento") {
+                  delete camposLimpos[campo];
+                  console.log(`🗑️ Removendo campo select suspeito: "${campo}"`);
+                }
+              });
+            }
           }
         }
         
