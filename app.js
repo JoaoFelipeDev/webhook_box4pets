@@ -136,7 +136,9 @@ app.post("/webhook/orders/create", async (req, res) => {
       Cidade: firstAddress.city || "",
       Estado: firstAddress.province || "",
       "Nome da Clínica ou Hospital": nomeClinicaHospital,
-      TAG: "Shopify",
+      // TAG: não enviado por padrão pois "Shopify" não é uma opção válida
+      // Opções válidas são: "Veterinário", "Criador", "Tutor"
+      // Se precisar adicionar uma tag específica, use uma das opções válidas acima
       "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
     };
     
