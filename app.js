@@ -125,6 +125,24 @@ app.post("/webhook/orders/create", async (req, res) => {
     // Formata a data para o Airtable
     const dataFormatada = formatarDataParaAirtable(order.created_at);
     
+    // Função para verificar e extrair tag válida do pedido
+    function obterTagValida(order) {
+      const tagsValidas = ["Veterinário", "Criador", "Tutor"];
+      
+      // Verifica tags do pedido (order.tags pode ser string separada por vírgulas)
+      if (order.tags) {
+        const tagsArray = order.tags.split(",").map(tag => tag.trim());
+        for (const tag of tagsArray) {
+          if (tagsValidas.includes(tag)) {
+            return tag;
+          }
+        }
+      }
+      
+      // Se não encontrou tag válida, retorna null
+      return null;
+    }
+    
     // Monta os campos base (sem campos que podem ter nomes diferentes)
     const camposBase = {
       Nome: customer.first_name || "",
@@ -136,11 +154,17 @@ app.post("/webhook/orders/create", async (req, res) => {
       Cidade: firstAddress.city || "",
       Estado: firstAddress.province || "",
       "Nome da Clínica ou Hospital": nomeClinicaHospital,
-      // TAG: não enviado por padrão pois "Shopify" não é uma opção válida
-      // Opções válidas são: "Veterinário", "Criador", "Tutor"
-      // Se precisar adicionar uma tag específica, use uma das opções válidas acima
       "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
     };
+    
+    // Adiciona campo TAG apenas se houver uma tag válida no pedido
+    const tagValida = obterTagValida(order);
+    if (tagValida) {
+      camposBase["TAG"] = tagValida;
+      console.log(`🏷️ Tag válida encontrada: "${tagValida}"`);
+    } else {
+      console.log("ℹ️ Nenhuma tag válida encontrada no pedido. Campo TAG não será enviado.");
+    }
     
     // Adiciona campos opcionais apenas se tiverem valor (para evitar problemas com campos select)
     if (order.order_number) {
