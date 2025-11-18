@@ -105,12 +105,10 @@ app.post("/webhook/orders/create", async (req, res) => {
     // Formata a data para o Airtable
     const dataFormatada = formatarDataParaAirtable(order.created_at);
     
-    // Tenta diferentes variações do nome do campo de data
-    // Se uma não funcionar, o código tentará sem o campo
+    // Monta os campos base (sem campos que podem ter nomes diferentes)
     const camposBase = {
       Nome: customer.first_name || "",
       Sobrenome: customer.last_name || "",
-      Pedido: order.order_number ? String(order.order_number) : "",
       Teste: "", // campo disponível para uso futuro
       Email: customer.email || order.email || "",
       Telefone: telefone,
@@ -124,7 +122,16 @@ app.post("/webhook/orders/create", async (req, res) => {
       "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
     };
     
-    // Adiciona o campo de data (tente diferentes nomes se necessário)
+    // Adiciona campos opcionais que podem ter nomes diferentes
+    // Tenta diferentes variações do nome do campo "Pedido"
+    // Se o campo "Pedido" não existir, o código tentará sem ele automaticamente
+    if (order.order_number) {
+      // Tenta primeiro com "Pedido" (nome mais comum)
+      // Se não funcionar, o tratamento de erro tentará sem este campo
+      camposBase["Pedido"] = String(order.order_number);
+    }
+    
+    // Adiciona o campo de data
     if (dataFormatada) {
       camposBase["Data da Compra"] = dataFormatada;
     }
@@ -157,14 +164,37 @@ app.post("/webhook/orders/create", async (req, res) => {
       console.error("❌ Erro ao salvar no Airtable:", JSON.stringify(data, null, 2));
       console.error("📋 Campos enviados:", Object.keys(airtableRecord.records[0].fields));
       
-      // Se o erro for de campo desconhecido, tenta sem o campo de data
+      // Se o erro for de campo desconhecido, tenta remover campos problemáticos
       if (data.error && data.error.type === 'UNKNOWN_FIELD_NAME') {
-        console.warn("⚠️ Tentando novamente sem o campo de data...");
-        const camposSemData = { ...airtableRecord.records[0].fields };
-        delete camposSemData["Data da Compra"];
+        const campoErro = data.error.message.match(/"([^"]+)"/)?.[1];
+        console.warn(`⚠️ Campo desconhecido: "${campoErro}". Tentando remover campos problemáticos...`);
+        
+        // Lista de campos que podem causar problemas (tenta remover um por vez)
+        const camposProblema = ["Pedido", "Data da Compra", "A # Pedido", "# Pedido"];
+        let camposLimpos = { ...airtableRecord.records[0].fields };
+        
+        // Remove o campo que causou o erro
+        if (campoErro) {
+          delete camposLimpos[campoErro];
+          // Também tenta variações comuns
+          camposProblema.forEach(campo => {
+            if (camposLimpos[campo]) {
+              delete camposLimpos[campo];
+            }
+          });
+        } else {
+          // Se não conseguir identificar, remove campos suspeitos
+          camposProblema.forEach(campo => {
+            if (camposLimpos[campo]) {
+              delete camposLimpos[campo];
+            }
+          });
+        }
+        
+        console.log("🔄 Tentando com campos:", Object.keys(camposLimpos));
         
         const retryRecord = {
-          records: [{ fields: camposSemData }]
+          records: [{ fields: camposLimpos }]
         };
         
         const retryResponse = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify`, {
@@ -178,10 +208,15 @@ app.post("/webhook/orders/create", async (req, res) => {
         
         const retryData = await retryResponse.json();
         if (retryResponse.ok) {
-          console.log("✅ Registro salvo sem o campo de data. Verifique o nome exato do campo 'Data da Compra' no Airtable.");
-          return res.status(200).send("OK (sem data)");
+          console.log(`✅ Registro salvo sem o(s) campo(s) problemático(s). Campo removido: "${campoErro || 'campos suspeitos'}"`);
+          console.log("💡 Verifique os nomes exatos dos campos no Airtable e ajuste o código se necessário.");
+          return res.status(200).send("OK (alguns campos removidos)");
         } else {
-          console.error("❌ Erro mesmo sem o campo de data:", JSON.stringify(retryData, null, 2));
+          console.error("❌ Erro mesmo após remover campos:", JSON.stringify(retryData, null, 2));
+          if (retryData.error && retryData.error.type === 'UNKNOWN_FIELD_NAME') {
+            const novoCampoErro = retryData.error.message.match(/"([^"]+)"/)?.[1];
+            console.error(`❌ Outro campo problemático encontrado: "${novoCampoErro}"`);
+          }
         }
       }
       
