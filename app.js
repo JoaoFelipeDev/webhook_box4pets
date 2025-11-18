@@ -242,8 +242,10 @@ app.post("/webhook/orders/create", async (req, res) => {
       CEP: firstAddress.zip || "",
       Cidade: firstAddress.city || "",
       Estado: firstAddress.province || "",
-      "Nome da Clínica ou Hospital": nomeClinicaHospital,
-      "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
+      "Nome da Clínica ou Hospital": nomeClinicaHospital
+      // "Status de Pagamento" removido temporariamente pois está causando erros de select inválido
+      // Se o campo existir no Airtable com opções válidas, descomente a linha abaixo:
+      // "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
     };
     
     // Adiciona campo TAG apenas se houver uma tag válida no pedido
@@ -279,7 +281,7 @@ app.post("/webhook/orders/create", async (req, res) => {
     
     // Remove campos vazios antes de enviar (importante para campos select)
     const camposLimpos = removerCamposVazios(camposBase);
-    
+
     const airtableRecord = {
       records: [
         {
@@ -351,10 +353,10 @@ app.post("/webhook/orders/create", async (req, res) => {
             // Se não conseguir identificar, tenta remover campos específicos baseado no valor
             const valorLimpo = valorErroSelect ? valorErroSelect.trim() : "";
             
-            // Se o valor for "Cancelado", remove "Status de Pagamento"
-            if (valorLimpo === "Cancelado" && camposLimpos["Status de Pagamento"]) {
+            // Se o valor for "Cancelado" ou "Pendente", remove "Status de Pagamento"
+            if ((valorLimpo === "Cancelado" || valorLimpo === "Pendente" || valorLimpo === "Pago") && camposLimpos["Status de Pagamento"]) {
               delete camposLimpos["Status de Pagamento"];
-              console.log(`🗑️ Removendo campo "Status de Pagamento" (valor inválido: "Cancelado")`);
+              console.log(`🗑️ Removendo campo "Status de Pagamento" (valor inválido: "${valorLimpo}")`);
             }
             // Se o valor for "Shopify", remove "TAG"
             else if (valorLimpo === "Shopify" && camposLimpos["TAG"]) {
