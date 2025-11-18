@@ -86,32 +86,61 @@ app.post("/webhook/orders/create", async (req, res) => {
       return statusMap[financialStatus] || financialStatus || "Desconhecido";
     }
 
+    // Função para formatar data para o Airtable (formato ISO 8601)
+    function formatarDataParaAirtable(dateString) {
+      if (!dateString) return "";
+      // O Airtable aceita formato ISO 8601: YYYY-MM-DD ou YYYY-MM-DDTHH:mm:ss.sssZ
+      // O Shopify já envia no formato correto, mas vamos garantir
+      try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return "";
+        // Retorna no formato ISO 8601 completo
+        return date.toISOString();
+      } catch (e) {
+        console.warn("⚠️ Erro ao formatar data:", dateString, e);
+        return dateString; // Retorna o original se não conseguir formatar
+      }
+    }
+
+    // Formata a data para o Airtable
+    const dataFormatada = formatarDataParaAirtable(order.created_at);
+    
+    // Tenta diferentes variações do nome do campo de data
+    // Se uma não funcionar, o código tentará sem o campo
+    const camposBase = {
+      Nome: customer.first_name || "",
+      Sobrenome: customer.last_name || "",
+      Pedido: order.order_number ? String(order.order_number) : "",
+      Teste: "", // campo disponível para uso futuro
+      Email: customer.email || order.email || "",
+      Telefone: telefone,
+      Endereço: enderecoCompleto,
+      CEP: firstAddress.zip || "",
+      Cidade: firstAddress.city || "",
+      Estado: firstAddress.province || "",
+      CRMV: "", // opcional, você pode deixar fixo ou buscar em outro lugar
+      "Nome da Clínica ou Hospital": nomeClinicaHospital,
+      TAG: "Shopify",
+      "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
+    };
+    
+    // Adiciona o campo de data (tente diferentes nomes se necessário)
+    if (dataFormatada) {
+      camposBase["Data da Compra"] = dataFormatada;
+    }
+    
     const airtableRecord = {
       records: [
         {
-          fields: {
-            Nome: customer.first_name || "",
-            Sobrenome: customer.last_name || "",
-            "Data da Compra": order.created_at || "",
-            Pedido: order.order_number ? String(order.order_number) : "",
-            Teste: "", // campo disponível para uso futuro
-            Email: customer.email || order.email || "",
-            Telefone: telefone,
-            Endereço: enderecoCompleto,
-            CEP: firstAddress.zip || "",
-            Cidade: firstAddress.city || "",
-            Estado: firstAddress.province || "",
-            CRMV: "", // opcional, você pode deixar fixo ou buscar em outro lugar
-            "Nome da Clínica ou Hospital": nomeClinicaHospital,
-            TAG: "Shopify",
-            "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
-          }
+          fields: camposBase
         }
       ]
     };
     
     // Log do payload que será enviado ao Airtable
     console.log("📤 Payload para Airtable:", JSON.stringify(airtableRecord, null, 2));
+    console.log("📅 Data original:", order.created_at);
+    console.log("📅 Data formatada:", dataFormatada);
 
     const response = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify`, {
       method: "POST",
@@ -125,7 +154,37 @@ app.post("/webhook/orders/create", async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("❌ Erro ao salvar no Airtable:", data);
+      console.error("❌ Erro ao salvar no Airtable:", JSON.stringify(data, null, 2));
+      console.error("📋 Campos enviados:", Object.keys(airtableRecord.records[0].fields));
+      
+      // Se o erro for de campo desconhecido, tenta sem o campo de data
+      if (data.error && data.error.type === 'UNKNOWN_FIELD_NAME') {
+        console.warn("⚠️ Tentando novamente sem o campo de data...");
+        const camposSemData = { ...airtableRecord.records[0].fields };
+        delete camposSemData["Data da Compra"];
+        
+        const retryRecord = {
+          records: [{ fields: camposSemData }]
+        };
+        
+        const retryResponse = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${process.env.AIRTABLE_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(retryRecord)
+        });
+        
+        const retryData = await retryResponse.json();
+        if (retryResponse.ok) {
+          console.log("✅ Registro salvo sem o campo de data. Verifique o nome exato do campo 'Data da Compra' no Airtable.");
+          return res.status(200).send("OK (sem data)");
+        } else {
+          console.error("❌ Erro mesmo sem o campo de data:", JSON.stringify(retryData, null, 2));
+        }
+      }
+      
       return res.status(500).send("Erro ao salvar no Airtable");
     }
 
