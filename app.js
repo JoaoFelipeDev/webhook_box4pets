@@ -52,11 +52,24 @@ app.post("/webhook/orders/create", async (req, res) => {
     const billingAddress = order.billing_address || {};
     const firstAddress = shippingAddress.address1 ? shippingAddress : billingAddress;
     
+    // Concatena endereço completo (address1 + address2)
+    const enderecoCompleto = [
+      firstAddress.address1 || "",
+      firstAddress.address2 || ""
+    ].filter(Boolean).join(", ").trim();
+    
     // Busca o nome da clínica/hospital em múltiplos lugares
     const nomeClinicaHospital = 
       shippingAddress.company || 
       billingAddress.company || 
       customer.note || 
+      "";
+    
+    // Busca telefone em múltiplos lugares
+    const telefone = 
+      firstAddress.phone || 
+      customer.phone || 
+      order.phone || 
       "";
 
     // Função para converter status de pagamento para português
@@ -73,69 +86,32 @@ app.post("/webhook/orders/create", async (req, res) => {
       return statusMap[financialStatus] || financialStatus || "Desconhecido";
     }
 
-    // Função para formatar informações adicionais do pedido
-    function formatarInformacoesAdicionais(order) {
-      const info = [];
-      
-      if (order.order_number) {
-        info.push(`Pedido #${order.order_number}`);
-      }
-      
-      if (order.total_price) {
-        info.push(`Total: R$ ${parseFloat(order.total_price).toFixed(2)}`);
-      }
-      
-      if (order.payment_gateway_names && order.payment_gateway_names.length > 0) {
-        info.push(`Pagamento: ${order.payment_gateway_names.join(", ")}`);
-      }
-      
-      if (order.shipping_lines && order.shipping_lines.length > 0) {
-        const shippingMethod = order.shipping_lines[0].title || "Não especificado";
-        info.push(`Envio: ${shippingMethod}`);
-      }
-      
-      if (order.line_items && order.line_items.length > 0) {
-        const totalItems = order.line_items.reduce((sum, item) => sum + (item.quantity || 0), 0);
-        info.push(`Itens: ${totalItems} produto(s)`);
-      }
-      
-      if (order.note) {
-        info.push(`Nota: ${order.note}`);
-      }
-      
-      if (order.tags && order.tags.trim()) {
-        info.push(`Tags: ${order.tags}`);
-      }
-      
-      if (order.order_status_url) {
-        info.push(`URL: ${order.order_status_url}`);
-      }
-      
-      return info.join(" | ") || "Sem informações adicionais";
-    }
-
     const airtableRecord = {
       records: [
         {
           fields: {
             Nome: customer.first_name || "",
             Sobrenome: customer.last_name || "",
-            Email: customer.email || "",
-            Telefone: firstAddress.phone || customer.phone || "",
-            Endereço: firstAddress.address1 || "",
+            "Data da Compra": order.created_at || "",
+            Pedido: order.order_number ? String(order.order_number) : "",
+            Teste: "", // campo disponível para uso futuro
+            Email: customer.email || order.email || "",
+            Telefone: telefone,
+            Endereço: enderecoCompleto,
             CEP: firstAddress.zip || "",
             Cidade: firstAddress.city || "",
             Estado: firstAddress.province || "",
             CRMV: "", // opcional, você pode deixar fixo ou buscar em outro lugar
             "Nome da Clínica ou Hospital": nomeClinicaHospital,
-            "Data do Pedido": order.created_at || "",
-            "Status do Pagamento": traduzirStatusPagamento(order.financial_status),
-            "Informações Adicionais": formatarInformacoesAdicionais(order),
-            // TAG: "Shopify"
+            TAG: "Shopify",
+            "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
           }
         }
       ]
     };
+    
+    // Log do payload que será enviado ao Airtable
+    console.log("📤 Payload para Airtable:", JSON.stringify(airtableRecord, null, 2));
 
     const response = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify`, {
       method: "POST",

@@ -1,0 +1,187 @@
+{
+  "explicacao": "Este arquivo mostra exemplos de como os dados são transformados do Shopify para o Airtable",
+  
+  "exemplo_webhook_shopify": {
+    "id": 5678901234,
+    "order_number": 1234,
+    "created_at": "2024-01-15T14:30:00-03:00",
+    "updated_at": "2024-01-15T14:35:00-03:00",
+    "financial_status": "paid",
+    "total_price": "299.90",
+    "subtotal_price": "249.90",
+    "total_tax": "50.00",
+    "currency": "BRL",
+    "payment_gateway_names": ["Stripe"],
+    "note": "Cliente solicitou entrega rápida",
+    "tags": "urgente, veterinario",
+    "order_status_url": "https://loja.myshopify.com/orders/5678901234/authenticate?key=abc123",
+    
+    "customer": {
+      "id": 123456789,
+      "email": "dr.silva@clinica.com.br",
+      "first_name": "João",
+      "last_name": "Silva",
+      "phone": "+5511999887766"
+    },
+    
+    "shipping_address": {
+      "first_name": "João",
+      "last_name": "Silva",
+      "company": "Clínica Veterinária São Paulo",
+      "address1": "Rua das Flores, 123",
+      "address2": "Sala 45",
+      "city": "São Paulo",
+      "province": "SP",
+      "zip": "01234-567",
+      "country": "Brasil",
+      "phone": "+5511999887766"
+    },
+    
+    "billing_address": {
+      "first_name": "João",
+      "last_name": "Silva",
+      "company": "Clínica Veterinária São Paulo",
+      "address1": "Rua das Flores, 123",
+      "city": "São Paulo",
+      "province": "SP",
+      "zip": "01234-567",
+      "country": "Brasil"
+    },
+    
+    "line_items": [
+      {
+        "id": 987654321,
+        "title": "Produto Veterinário Premium",
+        "quantity": 2,
+        "price": "124.95"
+      },
+      {
+        "id": 987654322,
+        "title": "Acessório Médico",
+        "quantity": 1,
+        "price": "50.00"
+      }
+    ],
+    
+    "shipping_lines": [
+      {
+        "title": "Correios - PAC",
+        "price": "15.00"
+      }
+    ]
+  },
+  
+  "exemplo_payload_airtable": {
+    "records": [
+      {
+        "fields": {
+          "Nome": "João",
+          "Sobrenome": "Silva",
+          "Email": "dr.silva@clinica.com.br",
+          "Telefone": "+5511999887766",
+          "Endereço": "Rua das Flores, 123",
+          "CEP": "01234-567",
+          "Cidade": "São Paulo",
+          "Estado": "SP",
+          "CRMV": "",
+          "Nome da Clínica ou Hospital": "Clínica Veterinária São Paulo",
+          "Data do Pedido": "2024-01-15T14:30:00-03:00",
+          "Status do Pagamento": "Pago",
+          "Informações Adicionais": "Pedido #1234 | Total: R$ 299.90 | Pagamento: Stripe | Envio: Correios - PAC | Itens: 3 produto(s) | Nota: Cliente solicitou entrega rápida | Tags: urgente, veterinario | URL: https://loja.myshopify.com/orders/5678901234/authenticate?key=abc123"
+        }
+      }
+    ]
+  },
+  
+  "exemplo_resposta_airtable": {
+    "records": [
+      {
+        "id": "recABC123XYZ",
+        "createdTime": "2024-01-15T14:35:30.000Z",
+        "fields": {
+          "Nome": "João",
+          "Sobrenome": "Silva",
+          "Email": "dr.silva@clinica.com.br",
+          "Telefone": "+5511999887766",
+          "Endereço": "Rua das Flores, 123",
+          "CEP": "01234-567",
+          "Cidade": "São Paulo",
+          "Estado": "SP",
+          "CRMV": "",
+          "Nome da Clínica ou Hospital": "Clínica Veterinária São Paulo",
+          "Data do Pedido": "2024-01-15T14:30:00-03:00",
+          "Status do Pagamento": "Pago",
+          "Informações Adicionais": "Pedido #1234 | Total: R$ 299.90 | Pagamento: Stripe | Envio: Correios - PAC | Itens: 3 produto(s) | Nota: Cliente solicitou entrega rápida | Tags: urgente, veterinario | URL: https://loja.myshopify.com/orders/5678901234/authenticate?key=abc123"
+        }
+      }
+    ]
+  },
+  
+  "exemplo_caso_sem_clinica": {
+    "descricao": "Quando não há nome de clínica/hospital no endereço",
+    "webhook_shopify": {
+      "customer": {
+        "first_name": "Maria",
+        "last_name": "Santos",
+        "email": "maria.santos@gmail.com"
+      },
+      "shipping_address": {
+        "first_name": "Maria",
+        "last_name": "Santos",
+        "address1": "Av. Paulista, 1000",
+        "city": "São Paulo",
+        "province": "SP",
+        "zip": "01310-100",
+        "phone": "+5511888776655"
+      }
+    },
+    "payload_airtable": {
+      "records": [
+        {
+          "fields": {
+            "Nome": "Maria",
+            "Sobrenome": "Santos",
+            "Email": "maria.santos@gmail.com",
+            "Telefone": "+5511888776655",
+            "Endereço": "Av. Paulista, 1000",
+            "CEP": "01310-100",
+            "Cidade": "São Paulo",
+            "Estado": "SP",
+            "CRMV": "",
+            "Nome da Clínica ou Hospital": "",
+            "Data do Pedido": "2024-01-15T14:30:00-03:00",
+            "Status do Pagamento": "Pendente",
+            "Informações Adicionais": "Pedido #1235 | Total: R$ 150.00 | Pagamento: PayPal | Envio: Correios - SEDEX | Itens: 1 produto(s)"
+          }
+        }
+      ]
+    }
+  },
+  
+  "exemplo_status_pagamento": {
+    "pending": "Pendente",
+    "paid": "Pago",
+    "authorized": "Autorizado",
+    "partially_paid": "Parcialmente Pago",
+    "refunded": "Reembolsado",
+    "voided": "Cancelado",
+    "partially_refunded": "Parcialmente Reembolsado"
+  },
+  
+  "notas": {
+    "campos_obrigatorios_airtable": [
+      "Os campos devem existir na tabela 'Shopify' do Airtable",
+      "'Data do Pedido' deve ser do tipo 'Date' ou 'Date with time'",
+      "'Status do Pagamento' pode ser 'Single select' ou 'Text'",
+      "'Informações Adicionais' deve ser 'Long text' ou 'Text'",
+      "Todos os outros campos podem ser 'Text' ou seus tipos apropriados"
+    ],
+    "prioridade_nome_clinica": [
+      "1. shipping_address.company",
+      "2. billing_address.company",
+      "3. customer.note",
+      "4. String vazia se nenhum for encontrado"
+    ]
+  }
+}
+
