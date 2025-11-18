@@ -197,27 +197,59 @@ app.post("/webhook/orders/create", async (req, res) => {
         const camposProblema = ["Pedido", "Data da Compra", "A # Pedido", "# Pedido", "Teste", "CRMV"];
         let camposLimpos = { ...airtableRecord.records[0].fields };
         
-        // Se for erro de select, remove campos que podem ser select e estão vazios ou com valores inválidos
+        // Se for erro de select, remove campos que podem ser select (mesmo com valores)
         if (data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
           const camposSelect = ["Teste", "CRMV", "TAG", "Status de Pagamento", "Nome da Clínica ou Hospital"];
-          camposSelect.forEach(campo => {
-            if (camposLimpos[campo] === "" || camposLimpos[campo] === null || camposLimpos[campo] === undefined) {
-              delete camposLimpos[campo];
-              console.log(`🗑️ Removendo campo select vazio: "${campo}"`);
+          // Extrai o valor que causou o erro (pode ter aspas escapadas como ""Shopify"")
+          const valorErroSelect = data.error.message.match(/option "?([^"]+)"?/)?.[1] || 
+                                  data.error.message.match(/""([^"]+)""/)?.[1];
+          
+          console.log(`🔍 Valor que causou erro no select: "${valorErroSelect}"`);
+          
+          // Tenta identificar qual campo tem esse valor
+          let campoEncontrado = null;
+          if (valorErroSelect) {
+            for (const [chave, valor] of Object.entries(camposLimpos)) {
+              if (camposSelect.includes(chave) && String(valor).trim() === valorErroSelect.trim()) {
+                campoEncontrado = chave;
+                break;
+              }
             }
-          });
+          }
+          
+          // Se encontrou o campo específico, remove apenas ele
+          if (campoEncontrado) {
+            delete camposLimpos[campoEncontrado];
+            console.log(`🗑️ Removendo campo select com valor inválido: "${campoEncontrado}" (valor: "${valorErroSelect}")`);
+          } else {
+            // Se não conseguir identificar, remove TAG primeiro (mais comum causar esse erro)
+            // e depois outros campos select se necessário
+            if (camposLimpos["TAG"]) {
+              const valorTag = camposLimpos["TAG"];
+              delete camposLimpos["TAG"];
+              console.log(`🗑️ Removendo campo TAG (valor inválido provável: "${valorTag || valorErroSelect}")`);
+            }
+            // Remove outros campos select suspeitos
+            camposSelect.forEach(campo => {
+              if (camposLimpos[campo] && campo !== "TAG") {
+                delete camposLimpos[campo];
+                console.log(`🗑️ Removendo campo select suspeito: "${campo}"`);
+              }
+            });
+          }
         }
         
-        // Remove o campo que causou o erro
-        if (campoErro) {
+        // Remove o campo que causou o erro (para erros de campo desconhecido)
+        if (campoErro && data.error.type === 'UNKNOWN_FIELD_NAME') {
           delete camposLimpos[campoErro];
+          console.log(`🗑️ Removendo campo desconhecido: "${campoErro}"`);
           // Também tenta variações comuns
           camposProblema.forEach(campo => {
             if (camposLimpos[campo]) {
               delete camposLimpos[campo];
             }
           });
-        } else {
+        } else if (!campoErro && data.error.type === 'UNKNOWN_FIELD_NAME') {
           // Se não conseguir identificar, remove campos suspeitos
           camposProblema.forEach(campo => {
             if (camposLimpos[campo]) {
