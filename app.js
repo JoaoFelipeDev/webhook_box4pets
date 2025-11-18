@@ -144,6 +144,93 @@ app.post("/webhook/orders/create", async (req, res) => {
       // Se não encontrou tag válida, retorna null
       return null;
     }
+
+    // Função para identificar o tipo de teste válido baseado nos produtos do pedido
+    function obterTesteValido(order) {
+      const testesValidos = [
+        "Saúde - Identificação de Doenças Genéticas",
+        "Origem - Identificação de Raças",
+        "Painel Saúde + Painel Origem",
+        "Perfil de SNP/DNA (Teste de Paternidade)",
+        "Teste Genético ALKC RI (registro inicial): Identificação de Raça - Origem",
+        "Teste Genético ALKC: Identificação de Doenças, Traços e Perfil de DNA"
+      ];
+      
+      // Mapeamento de palavras-chave dos produtos para testes válidos
+      // Ordem importa: verifica primeiro padrões mais específicos
+      const mapeamentoTestes = [
+        // Padrões específicos primeiro
+        { padrao: /alkc\s+ri|registro\s+inicial/i, teste: "Teste Genético ALKC RI (registro inicial): Identificação de Raça - Origem" },
+        { padrao: /alkc/i, teste: "Teste Genético ALKC: Identificação de Doenças, Traços e Perfil de DNA" },
+        { padrao: /paternidade|snp\/dna|perfil\s+de\s+snp/i, teste: "Perfil de SNP/DNA (Teste de Paternidade)" },
+        { padrao: /painel\s+saúde.*painel\s+origem|painel\s+origem.*painel\s+saúde|ultra.*raças.*doenças|raças.*doenças/i, teste: "Painel Saúde + Painel Origem" },
+        { padrao: /saúde.*doenças\s+genéticas|doenças\s+genéticas|avançado.*doenças/i, teste: "Saúde - Identificação de Doenças Genéticas" },
+        { padrao: /origem.*raças|identificação\s+de\s+raças/i, teste: "Origem - Identificação de Raças" }
+      ];
+      
+      // Função auxiliar para verificar padrões
+      function verificarPadroes(texto) {
+        if (!texto) return null;
+        const textoLower = texto.toLowerCase();
+        
+        // Verifica correspondência exata primeiro
+        for (const testeValido of testesValidos) {
+          if (textoLower === testeValido.toLowerCase()) {
+            return testeValido;
+          }
+        }
+        
+        // Verifica padrões usando regex (ordem importa - mais específicos primeiro)
+        for (const { padrao, teste } of mapeamentoTestes) {
+          if (padrao.test(texto)) {
+            return teste;
+          }
+        }
+        
+        return null;
+      }
+      
+      // Verifica tags do pedido primeiro
+      if (order.tags) {
+        const tagsArray = order.tags.split(",").map(tag => tag.trim());
+        for (const tag of tagsArray) {
+          const testeEncontrado = verificarPadroes(tag);
+          if (testeEncontrado) {
+            return testeEncontrado;
+          }
+        }
+      }
+      
+      // Verifica nos nomes dos produtos (line_items)
+      if (order.line_items && Array.isArray(order.line_items)) {
+        // Verifica cada produto individualmente
+        for (const item of order.line_items) {
+          const nomeProduto = (item.name || item.title || "").trim();
+          if (nomeProduto) {
+            const testeEncontrado = verificarPadroes(nomeProduto);
+            if (testeEncontrado) {
+              return testeEncontrado;
+            }
+          }
+        }
+        
+        // Se não encontrou em produtos individuais, verifica todos juntos
+        const todosProdutos = order.line_items
+          .map(item => (item.name || item.title || "").trim())
+          .filter(Boolean)
+          .join(" ");
+        
+        if (todosProdutos) {
+          const testeEncontrado = verificarPadroes(todosProdutos);
+          if (testeEncontrado) {
+            return testeEncontrado;
+          }
+        }
+      }
+      
+      // Se não encontrou teste válido, retorna null
+      return null;
+    }
     
     // Monta os campos base (sem campos que podem ter nomes diferentes)
     const camposBase = {
@@ -168,13 +255,19 @@ app.post("/webhook/orders/create", async (req, res) => {
       console.log("ℹ️ Nenhuma tag válida encontrada no pedido. Campo TAG não será enviado.");
     }
     
+    // Adiciona campo Teste apenas se houver um teste válido no pedido
+    const testeValido = obterTesteValido(order);
+    if (testeValido) {
+      camposBase["Teste"] = testeValido;
+      console.log(`🧪 Teste válido encontrado: "${testeValido}"`);
+    } else {
+      console.log("ℹ️ Nenhum teste válido encontrado no pedido. Campo Teste não será enviado.");
+    }
+    
     // Adiciona campos opcionais apenas se tiverem valor (para evitar problemas com campos select)
     if (order.order_number) {
       camposBase["Pedido"] = String(order.order_number);
     }
-    
-    // Adiciona campo Teste apenas se necessário (comentado para evitar problemas com select)
-    // Teste: "", // campo disponível para uso futuro - não enviar vazio se for select
     
     // Adiciona CRMV apenas se tiver valor (comentado para evitar problemas com select)
     // CRMV: "", // opcional - não enviar vazio se for select
