@@ -268,7 +268,7 @@ app.post("/webhook/orders/create", async (req, res) => {
     
     // Adiciona campos opcionais apenas se tiverem valor (para evitar problemas com campos select)
     if (order.order_number) {
-      camposBase["# Pedido"] = String(order.order_number);
+      camposBase["Pedido"] = String(order.order_number);
     }
     
     // Adiciona CRMV apenas se tiver valor (comentado para evitar problemas com select)
