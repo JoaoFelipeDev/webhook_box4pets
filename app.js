@@ -267,8 +267,9 @@ app.post("/webhook/orders/create", async (req, res) => {
     }
     
     // Adiciona campos opcionais apenas se tiverem valor (para evitar problemas com campos select)
+    // "# Pedido" é um campo numérico no Airtable (o # indica tipo numérico)
     if (order.order_number) {
-      camposBase["Pedido"] = String(order.order_number);
+      camposBase["# Pedido"] = Number(order.order_number) || parseInt(order.order_number, 10);
     }
     
     // Adiciona CRMV apenas se tiver valor (comentado para evitar problemas com select)
