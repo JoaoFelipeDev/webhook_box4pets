@@ -301,7 +301,7 @@ app.post("/webhook/orders/create", async (req, res) => {
     console.log("📅 Data original:", order.created_at);
     console.log("📅 Data formatada:", dataFormatada);
 
-    const response = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify`, {
+    const response = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Valores_Vet`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${process.env.AIRTABLE_API_KEY}`,
