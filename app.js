@@ -301,7 +301,7 @@ app.post("/webhook/orders/create", async (req, res) => {
     console.log("📅 Data original:", order.created_at);
     console.log("📅 Data formatada:", dataFormatada);
 
-    const response = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Valores_Vet`, {
+    const response = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify_Vendas`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${process.env.AIRTABLE_API_KEY}`,
@@ -447,7 +447,7 @@ app.post("/webhook/orders/create", async (req, res) => {
           records: [{ fields: camposLimpos }]
         };
         
-        const retryResponse = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Valores_Vet`, {
+        const retryResponse = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify_Vendas`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${process.env.AIRTABLE_API_KEY}`,
