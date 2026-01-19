@@ -51,25 +51,25 @@ app.post("/webhook/orders/create", async (req, res) => {
     const shippingAddress = order.shipping_address || {};
     const billingAddress = order.billing_address || {};
     const firstAddress = shippingAddress.address1 ? shippingAddress : billingAddress;
-    
+
     // Concatena endereço completo (address1 + address2)
     const enderecoCompleto = [
       firstAddress.address1 || "",
       firstAddress.address2 || ""
     ].filter(Boolean).join(", ").trim();
-    
+
     // Busca o nome da clínica/hospital em múltiplos lugares
-    const nomeClinicaHospital = 
-      shippingAddress.company || 
-      billingAddress.company || 
-      customer.note || 
+    const nomeClinicaHospital =
+      shippingAddress.company ||
+      billingAddress.company ||
+      customer.note ||
       "";
-    
+
     // Busca telefone em múltiplos lugares
-    const telefone = 
-      firstAddress.phone || 
-      customer.phone || 
-      order.phone || 
+    const telefone =
+      firstAddress.phone ||
+      customer.phone ||
+      order.phone ||
       "";
 
     // Função para converter status de pagamento para português
@@ -95,13 +95,13 @@ app.post("/webhook/orders/create", async (req, res) => {
       try {
         const date = new Date(dateString);
         if (isNaN(date.getTime())) return "";
-        
+
         // Tenta primeiro apenas a data (YYYY-MM-DD) - formato mais comum para campos de data simples
         const ano = date.getFullYear();
         const mes = String(date.getMonth() + 1).padStart(2, '0');
         const dia = String(date.getDate()).padStart(2, '0');
         const apenasData = `${ano}-${mes}-${dia}`;
-        
+
         // Retorna apenas a data (sem hora) - mais compatível com campos de data simples no Airtable
         return apenasData;
       } catch (e) {
@@ -116,7 +116,7 @@ app.post("/webhook/orders/create", async (req, res) => {
       const camposLimpos = {};
       // Lista de campos que podem ser select e não devem ser enviados vazios
       const camposSelectPossiveis = ["Teste", "CRMV", "TAG"];
-      
+
       for (const [chave, valor] of Object.entries(campos)) {
         // Se for um campo select possível e estiver vazio, não inclui
         if (camposSelectPossiveis.includes(chave) && (valor === "" || valor === null || valor === undefined)) {
@@ -132,11 +132,11 @@ app.post("/webhook/orders/create", async (req, res) => {
 
     // Formata a data para o Airtable
     const dataFormatada = formatarDataParaAirtable(order.created_at);
-    
+
     // Função para verificar e extrair tag válida do pedido
     function obterTagValida(order) {
       const tagsValidas = ["Veterinário", "Criador", "Tutor"];
-      
+
       // Verifica tags do pedido (order.tags pode ser string separada por vírgulas)
       if (order.tags) {
         const tagsArray = order.tags.split(",").map(tag => tag.trim());
@@ -146,7 +146,7 @@ app.post("/webhook/orders/create", async (req, res) => {
           }
         }
       }
-      
+
       // Se não encontrou tag válida, retorna null
       return null;
     }
@@ -161,7 +161,7 @@ app.post("/webhook/orders/create", async (req, res) => {
         "Teste Genético ALKC RI (registro inicial): Identificação de Raça - Origem",
         "Teste Genético ALKC: Identificação de Doenças, Traços e Perfil de DNA"
       ];
-      
+
       // Mapeamento de palavras-chave dos produtos para testes válidos
       // Ordem importa: verifica primeiro padrões mais específicos
       const mapeamentoTestes = [
@@ -173,29 +173,29 @@ app.post("/webhook/orders/create", async (req, res) => {
         { padrao: /saúde.*doenças\s+genéticas|doenças\s+genéticas|avançado.*doenças/i, teste: "Saúde - Identificação de Doenças Genéticas" },
         { padrao: /origem.*raças|identificação\s+de\s+raças/i, teste: "Origem - Identificação de Raças" }
       ];
-      
+
       // Função auxiliar para verificar padrões
       function verificarPadroes(texto) {
         if (!texto) return null;
         const textoLower = texto.toLowerCase();
-        
+
         // Verifica correspondência exata primeiro
         for (const testeValido of testesValidos) {
           if (textoLower === testeValido.toLowerCase()) {
             return testeValido;
           }
         }
-        
+
         // Verifica padrões usando regex (ordem importa - mais específicos primeiro)
         for (const { padrao, teste } of mapeamentoTestes) {
           if (padrao.test(texto)) {
             return teste;
           }
         }
-        
+
         return null;
       }
-      
+
       // Verifica tags do pedido primeiro
       if (order.tags) {
         const tagsArray = order.tags.split(",").map(tag => tag.trim());
@@ -206,7 +206,7 @@ app.post("/webhook/orders/create", async (req, res) => {
           }
         }
       }
-      
+
       // Verifica nos nomes dos produtos (line_items)
       if (order.line_items && Array.isArray(order.line_items)) {
         // Verifica cada produto individualmente
@@ -219,13 +219,13 @@ app.post("/webhook/orders/create", async (req, res) => {
             }
           }
         }
-        
+
         // Se não encontrou em produtos individuais, verifica todos juntos
         const todosProdutos = order.line_items
           .map(item => (item.name || item.title || "").trim())
           .filter(Boolean)
           .join(" ");
-        
+
         if (todosProdutos) {
           const testeEncontrado = verificarPadroes(todosProdutos);
           if (testeEncontrado) {
@@ -233,27 +233,35 @@ app.post("/webhook/orders/create", async (req, res) => {
           }
         }
       }
-      
+
       // Se não encontrou teste válido, retorna null
       return null;
     }
-    
-    // Monta os campos base (sem campos que podem ter nomes diferentes)
+
+    // Monta os campos base com os nomes exatos da tabela Shopify_Vendas
+    // Os campos com prefixo "A " são campos de texto do Airtable
     const camposBase = {
-      Nome: customer.first_name || "",
-      Sobrenome: customer.last_name || "",
+      "A Name": customer.first_name || "",  // "A Name" é o nome exato do campo
+      "A Sobrenome": customer.last_name || "",  // "A Sobrenome" é o nome exato do campo
       Email: customer.email || order.email || "",
       Telefone: telefone,
-      Endereço: enderecoCompleto,
-      CEP: firstAddress.zip || "",
-      Cidade: firstAddress.city || "",
-      Estado: firstAddress.province || "",
-      "Nome da Clínica ou Hospital": nomeClinicaHospital
-      // "Status de Pagamento" removido temporariamente pois está causando erros de select inválido
-      // Se o campo existir no Airtable com opções válidas, descomente a linha abaixo:
-      // "Status de Pagamento": traduzirStatusPagamento(order.financial_status)
+      "A Cidade": firstAddress.city || "",  // "A Cidade" é o nome exato do campo
+      "A UF": firstAddress.province || ""  // "A UF" é o nome exato do campo (não "Estado")
+      // Campos que podem não existir ou causar erros - serão adicionados condicionalmente:
+      // "Endereço", "CEP", "Nome da Clínica ou Hospital", "Teste", "Pedido", "Data da Compra"
     };
-    
+
+    // Adiciona campos opcionais apenas se tiverem valor
+    if (enderecoCompleto) {
+      camposBase["Endereço"] = enderecoCompleto;
+    }
+    if (firstAddress.zip) {
+      camposBase["CEP"] = firstAddress.zip;
+    }
+    if (nomeClinicaHospital) {
+      camposBase["Nome da Clínica ou Hospital"] = nomeClinicaHospital;
+    }
+
     // Adiciona campo TAG apenas se houver uma tag válida no pedido
     const tagValida = obterTagValida(order);
     if (tagValida) {
@@ -262,7 +270,7 @@ app.post("/webhook/orders/create", async (req, res) => {
     } else {
       console.log("ℹ️ Nenhuma tag válida encontrada no pedido. Campo TAG não será enviado.");
     }
-    
+
     // Adiciona campo Teste apenas se houver um teste válido no pedido
     const testeValido = obterTesteValido(order);
     if (testeValido) {
@@ -271,20 +279,21 @@ app.post("/webhook/orders/create", async (req, res) => {
     } else {
       console.log("ℹ️ Nenhum teste válido encontrado no pedido. Campo Teste não será enviado.");
     }
-    
-    // Adiciona campos opcionais apenas se tiverem valor (para evitar problemas com campos select)
+
+    // Adiciona campo "# Pedido" (campo numérico no Airtable)
     if (order.order_number) {
-      camposBase["Pedido"] = String(order.order_number);
+      camposBase["# Pedido"] = Number(order.order_number) || parseInt(order.order_number, 10);
     }
-    
-    // Adiciona CRMV apenas se tiver valor (comentado para evitar problemas com select)
-    // CRMV: "", // opcional - não enviar vazio se for select
-    
+
     // Adiciona o campo de data
     if (dataFormatada) {
       camposBase["Data da Compra"] = dataFormatada;
     }
-    
+
+    // "Status de Pagamento" removido temporariamente pois está causando erros de select inválido
+    // Se o campo existir no Airtable com opções válidas, adicione abaixo:
+    // camposBase["Status de Pagamento"] = traduzirStatusPagamento(order.financial_status);
+
     // Remove campos vazios antes de enviar (importante para campos select)
     const camposLimpos = removerCamposVazios(camposBase);
 
@@ -295,7 +304,7 @@ app.post("/webhook/orders/create", async (req, res) => {
         }
       ]
     };
-    
+
     // Log do payload que será enviado ao Airtable
     console.log("📤 Payload para Airtable:", JSON.stringify(airtableRecord, null, 2));
     console.log("📅 Data original:", order.created_at);
@@ -315,11 +324,11 @@ app.post("/webhook/orders/create", async (req, res) => {
     if (!response.ok) {
       console.error("❌ Erro ao salvar no Airtable:", JSON.stringify(data, null, 2));
       console.error("📋 Campos enviados:", Object.keys(airtableRecord.records[0].fields));
-      
+
       // Se o erro for de campo desconhecido, select inválido ou valor inválido, tenta remover campos problemáticos
-      if (data.error && (data.error.type === 'UNKNOWN_FIELD_NAME' || 
-                         data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS' ||
-                         data.error.type === 'INVALID_VALUE_FOR_COLUMN')) {
+      if (data.error && (data.error.type === 'UNKNOWN_FIELD_NAME' ||
+        data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS' ||
+        data.error.type === 'INVALID_VALUE_FOR_COLUMN')) {
         const campoErro = data.error.message.match(/"([^"]+)"/)?.[1];
         let tipoErro = 'campo desconhecido';
         if (data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
@@ -328,11 +337,22 @@ app.post("/webhook/orders/create", async (req, res) => {
           tipoErro = 'valor inválido';
         }
         console.warn(`⚠️ ${tipoErro}: "${campoErro || 'campo'}". Tentando remover campos problemáticos...`);
-        
+
         // Lista de campos que podem causar problemas (tenta remover um por vez)
-        const camposProblema = ["Pedido", "Data da Compra", "A # Pedido", "# Pedido", "Teste", "CRMV"];
+        // Inclui variações dos nomes dos campos
+        const camposProblema = [
+          "Pedido", "# Pedido", "A # Pedido",
+          "Data da Compra", "Data da Compra",
+          "Nome", "A Name",
+          "Sobrenome", "A Sobrenome",
+          "Email", "A Email",
+          "Cidade", "A Cidade",
+          "Estado", "A UF", "UF",
+          "Teste", "CRMV",
+          "Endereço", "CEP", "Telefone"
+        ];
         let camposLimpos = { ...airtableRecord.records[0].fields };
-        
+
         // Se for erro de valor inválido (ex: formato de data incorreto)
         if (data.error.type === 'INVALID_VALUE_FOR_COLUMN') {
           // Remove o campo que causou o erro
@@ -346,19 +366,19 @@ app.post("/webhook/orders/create", async (req, res) => {
             console.log(`🗑️ Removendo campo "Data da Compra" (formato de data inválido)`);
           }
         }
-        
+
         // Se for erro de select, remove campos que podem ser select (mesmo com valores)
         if (data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
           const camposSelect = ["Teste", "CRMV", "TAG", "Status de Pagamento", "Nome da Clínica ou Hospital"];
           // Extrai o valor que causou o erro (pode ter aspas escapadas como ""Cancelado"" ou ""Shopify"")
           // Tenta diferentes padrões de aspas escapadas
-          const valorErroSelect = data.error.message.match(/""([^"]+)""/)?.[1] || 
-                                  data.error.message.match(/option "([^"]+)"/)?.[1] ||
-                                  data.error.message.match(/option "?([^"]+)"?/)?.[1];
-          
+          const valorErroSelect = data.error.message.match(/""([^"]+)""/)?.[1] ||
+            data.error.message.match(/option "([^"]+)"/)?.[1] ||
+            data.error.message.match(/option "?([^"]+)"?/)?.[1];
+
           console.log(`🔍 Valor que causou erro no select: "${valorErroSelect}"`);
           console.log(`🔍 Mensagem completa do erro: "${data.error.message}"`);
-          
+
           // Tenta identificar qual campo tem esse valor
           let campoEncontrado = null;
           if (valorErroSelect) {
@@ -371,7 +391,7 @@ app.post("/webhook/orders/create", async (req, res) => {
               }
             }
           }
-          
+
           // Se encontrou o campo específico, remove apenas ele
           if (campoEncontrado) {
             delete camposLimpos[campoEncontrado];
@@ -379,7 +399,7 @@ app.post("/webhook/orders/create", async (req, res) => {
           } else {
             // Se não conseguir identificar, tenta remover campos específicos baseado no valor
             const valorLimpo = valorErroSelect ? valorErroSelect.trim() : "";
-            
+
             // Se o valor for "Cancelado" ou "Pendente", remove "Status de Pagamento"
             if ((valorLimpo === "Cancelado" || valorLimpo === "Pendente" || valorLimpo === "Pago") && camposLimpos["Status de Pagamento"]) {
               delete camposLimpos["Status de Pagamento"];
@@ -412,7 +432,7 @@ app.post("/webhook/orders/create", async (req, res) => {
             }
           }
         }
-        
+
         // Remove o campo que causou o erro (para erros de campo desconhecido)
         if (campoErro && data.error.type === 'UNKNOWN_FIELD_NAME') {
           delete camposLimpos[campoErro];
@@ -431,7 +451,7 @@ app.post("/webhook/orders/create", async (req, res) => {
             }
           });
         }
-        
+
         // Remove TODOS os campos vazios antes de tentar novamente (para evitar problemas com select)
         const camposLimposFinal = {};
         for (const [chave, valor] of Object.entries(camposLimpos)) {
@@ -440,13 +460,13 @@ app.post("/webhook/orders/create", async (req, res) => {
           }
         }
         camposLimpos = camposLimposFinal;
-        
+
         console.log("🔄 Tentando com campos:", Object.keys(camposLimpos));
-        
+
         const retryRecord = {
           records: [{ fields: camposLimpos }]
         };
-        
+
         const retryResponse = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify_Vendas`, {
           method: "POST",
           headers: {
@@ -455,7 +475,7 @@ app.post("/webhook/orders/create", async (req, res) => {
           },
           body: JSON.stringify(retryRecord)
         });
-        
+
         const retryData = await retryResponse.json();
         if (retryResponse.ok) {
           console.log(`✅ Registro salvo sem o(s) campo(s) problemático(s). Campo removido: "${campoErro || 'campos suspeitos'}"`);
@@ -474,7 +494,7 @@ app.post("/webhook/orders/create", async (req, res) => {
           }
         }
       }
-      
+
       return res.status(500).send("Erro ao salvar no Airtable");
     }
 
