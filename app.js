@@ -239,14 +239,14 @@ app.post("/webhook/orders/create", async (req, res) => {
     }
 
     // Monta os campos base com os nomes exatos da tabela Shopify_Vendas
-    // Os campos com prefixo "A " são campos de texto do Airtable
+    // Nota: "A" e "#" são apenas indicadores de tipo no Airtable, não fazem parte do nome do campo
     const camposBase = {
-      "A Name": customer.first_name || "",  // "A Name" é o nome exato do campo
-      "A Sobrenome": customer.last_name || "",  // "A Sobrenome" é o nome exato do campo
+      Name: customer.first_name || "",  // Campo de texto (indicado por "A" no Airtable)
+      Sobrenome: customer.last_name || "",  // Campo de texto (indicado por "A" no Airtable)
       Email: customer.email || order.email || "",
       Telefone: telefone,
-      "A Cidade": firstAddress.city || "",  // "A Cidade" é o nome exato do campo
-      "A UF": firstAddress.province || ""  // "A UF" é o nome exato do campo (não "Estado")
+      Cidade: firstAddress.city || "",  // Campo de texto (indicado por "A" no Airtable)
+      UF: firstAddress.province || ""  // Campo de texto (indicado por "A" no Airtable, não "Estado")
       // Campos que podem não existir ou causar erros - serão adicionados condicionalmente:
       // "Endereço", "CEP", "Nome da Clínica ou Hospital", "Teste", "Pedido", "Data da Compra"
     };
@@ -280,9 +280,9 @@ app.post("/webhook/orders/create", async (req, res) => {
       console.log("ℹ️ Nenhum teste válido encontrado no pedido. Campo Teste não será enviado.");
     }
 
-    // Adiciona campo "# Pedido" (campo numérico no Airtable)
+    // Adiciona campo "Pedido" (campo numérico no Airtable, indicado por "#" no Airtable)
     if (order.order_number) {
-      camposBase["# Pedido"] = Number(order.order_number) || parseInt(order.order_number, 10);
+      camposBase["Pedido"] = Number(order.order_number) || parseInt(order.order_number, 10);
     }
 
     // Adiciona o campo de data
@@ -339,15 +339,15 @@ app.post("/webhook/orders/create", async (req, res) => {
         console.warn(`⚠️ ${tipoErro}: "${campoErro || 'campo'}". Tentando remover campos problemáticos...`);
 
         // Lista de campos que podem causar problemas (tenta remover um por vez)
-        // Inclui variações dos nomes dos campos
+        // Inclui variações dos nomes dos campos (sem prefixos "A " e "# " que são apenas indicadores de tipo)
         const camposProblema = [
-          "Pedido", "Pedido", "Pedido",
-          "Data da Compra", "Data da Compra",
-          "Nome", "Name",
-          "Sobrenome", "Sobrenome",
-          "Email", "Email",
-          "Cidade", "Cidade",
-          "Estado", "UF", "UF",
+          "Pedido", "# Pedido", "A # Pedido",
+          "Data da Compra",
+          "Name", "A Name", "Nome",
+          "Sobrenome", "A Sobrenome",
+          "Email", "A Email",
+          "Cidade", "A Cidade",
+          "UF", "A UF", "Estado",
           "Teste", "CRMV",
           "Endereço", "CEP", "Telefone"
         ];
