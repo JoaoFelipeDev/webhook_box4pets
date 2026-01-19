@@ -369,6 +369,17 @@ app.post("/webhook/orders/create", async (req, res) => {
 
       console.log("✅ Cliente salvo no Airtable com ID:", data.records[0].id);
       console.log("📋 Campos salvos:", resultado.camposEnviados.join(", "));
+
+      // Lista campos que foram removidos (comparando com campos originais)
+      const camposRemovidos = Object.keys(camposLimpos).filter(campo => !resultado.camposEnviados.includes(campo));
+      if (camposRemovidos.length > 0) {
+        console.warn("⚠️ Campos removidos por erro:", camposRemovidos.join(", "));
+        console.warn("💡 Para incluir estes campos, verifique os nomes exatos na tabela do Airtable:");
+        console.warn("   - Clique com botão direito no cabeçalho da coluna no Airtable");
+        console.warn("   - Selecione 'Customize field type' ou 'Rename field' para ver o nome exato");
+        console.warn("   - Os campos podem ter espaços extras, acentos ou nomes diferentes");
+      }
+
       res.status(200).send("OK");
     } catch (err) {
       // Se foi erro do Airtable
