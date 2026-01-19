@@ -341,13 +341,13 @@ app.post("/webhook/orders/create", async (req, res) => {
         // Lista de campos que podem causar problemas (tenta remover um por vez)
         // Inclui variações dos nomes dos campos
         const camposProblema = [
-          "Pedido", "# Pedido", "A # Pedido",
+          "Pedido", "Pedido", "Pedido",
           "Data da Compra", "Data da Compra",
-          "Nome", "A Name",
-          "Sobrenome", "A Sobrenome",
-          "Email", "A Email",
-          "Cidade", "A Cidade",
-          "Estado", "A UF", "UF",
+          "Nome", "Name",
+          "Sobrenome", "Sobrenome",
+          "Email", "Email",
+          "Cidade", "Cidade",
+          "Estado", "UF", "UF",
           "Teste", "CRMV",
           "Endereço", "CEP", "Telefone"
         ];
