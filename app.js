@@ -297,212 +297,96 @@ app.post("/webhook/orders/create", async (req, res) => {
     // Remove campos vazios antes de enviar (importante para campos select)
     const camposLimpos = removerCamposVazios(camposBase);
 
-    const airtableRecord = {
-      records: [
-        {
-          fields: camposLimpos
+    // Função recursiva para tentar salvar no Airtable, removendo campos problemáticos automaticamente
+    async function tentarSalvarNoAirtable(campos, tentativa = 0, maxTentativas = 10) {
+      // Remove campos vazios
+      const camposFiltrados = {};
+      for (const [chave, valor] of Object.entries(campos)) {
+        if (valor !== "" && valor !== null && valor !== undefined) {
+          camposFiltrados[chave] = valor;
         }
-      ]
-    };
+      }
 
-    // Log do payload que será enviado ao Airtable
-    console.log("📤 Payload para Airtable:", JSON.stringify(airtableRecord, null, 2));
-    console.log("📅 Data original:", order.created_at);
-    console.log("📅 Data formatada:", dataFormatada);
+      if (Object.keys(camposFiltrados).length === 0) {
+        throw new Error("Nenhum campo válido para enviar ao Airtable");
+      }
 
-    const response = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify_Vendas`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.AIRTABLE_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(airtableRecord)
-    });
+      const payload = {
+        records: [{ fields: camposFiltrados }]
+      };
 
-    const data = await response.json();
+      if (tentativa === 0) {
+        // Log apenas na primeira tentativa
+        console.log("📤 Payload para Airtable:", JSON.stringify(payload, null, 2));
+        console.log("📅 Data original:", order.created_at);
+        console.log("📅 Data formatada:", dataFormatada);
+      }
 
-    if (!response.ok) {
-      console.error("❌ Erro ao salvar no Airtable:", JSON.stringify(data, null, 2));
-      console.error("📋 Campos enviados:", Object.keys(airtableRecord.records[0].fields));
+      const response = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify_Vendas`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.AIRTABLE_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
 
-      // Se o erro for de campo desconhecido, select inválido ou valor inválido, tenta remover campos problemáticos
-      if (data.error && (data.error.type === 'UNKNOWN_FIELD_NAME' ||
-        data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS' ||
-        data.error.type === 'INVALID_VALUE_FOR_COLUMN')) {
-        const campoErro = data.error.message.match(/"([^"]+)"/)?.[1];
-        let tipoErro = 'campo desconhecido';
-        if (data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
-          tipoErro = 'select inválido';
-        } else if (data.error.type === 'INVALID_VALUE_FOR_COLUMN') {
-          tipoErro = 'valor inválido';
-        }
-        console.warn(`⚠️ ${tipoErro}: "${campoErro || 'campo'}". Tentando remover campos problemáticos...`);
+      const data = await response.json();
 
-        // Lista de campos que podem causar problemas (tenta remover um por vez)
-        // Inclui variações dos nomes dos campos (sem prefixos "A " e "# " que são apenas indicadores de tipo)
-        const camposProblema = [
-          "Pedido", "# Pedido", "A # Pedido",
-          "Data da Compra",
-          "Name", "A Name", "Nome",
-          "Sobrenome", "A Sobrenome",
-          "Email", "A Email",
-          "Cidade", "A Cidade",
-          "UF", "A UF", "Estado",
-          "Teste", "CRMV",
-          "Endereço", "CEP", "Telefone"
-        ];
-        let camposLimpos = { ...airtableRecord.records[0].fields };
+      if (response.ok) {
+        return { data, camposEnviados: Object.keys(camposFiltrados) };
+      }
 
-        // Se for erro de valor inválido (ex: formato de data incorreto)
-        if (data.error.type === 'INVALID_VALUE_FOR_COLUMN') {
-          // Remove o campo que causou o erro
-          if (campoErro && camposLimpos[campoErro]) {
-            delete camposLimpos[campoErro];
-            console.log(`🗑️ Removendo campo com valor inválido: "${campoErro}"`);
-          }
-          // Se for "Data da Compra", remove também
-          if (campoErro === "Data da Compra" || data.error.message.includes("Data da Compra")) {
-            delete camposLimpos["Data da Compra"];
-            console.log(`🗑️ Removendo campo "Data da Compra" (formato de data inválido)`);
-          }
-        }
+      // Se deu erro e ainda temos tentativas, tenta remover campos problemáticos
+      if (tentativa < maxTentativas && data.error) {
+        const { type, message } = data.error;
 
-        // Se for erro de select, remove campos que podem ser select (mesmo com valores)
-        if (data.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
-          const camposSelect = ["Teste", "CRMV", "TAG", "Status de Pagamento", "Nome da Clínica ou Hospital"];
-          // Extrai o valor que causou o erro (pode ter aspas escapadas como ""Cancelado"" ou ""Shopify"")
-          // Tenta diferentes padrões de aspas escapadas
-          const valorErroSelect = data.error.message.match(/""([^"]+)""/)?.[1] ||
-            data.error.message.match(/option "([^"]+)"/)?.[1] ||
-            data.error.message.match(/option "?([^"]+)"?/)?.[1];
+        if (type === 'UNKNOWN_FIELD_NAME' || type === 'INVALID_MULTIPLE_CHOICE_OPTIONS' || type === 'INVALID_VALUE_FOR_COLUMN') {
+          const campoErro = message.match(/"([^"]+)"/)?.[1];
 
-          console.log(`🔍 Valor que causou erro no select: "${valorErroSelect}"`);
-          console.log(`🔍 Mensagem completa do erro: "${data.error.message}"`);
+          if (campoErro && camposFiltrados[campoErro]) {
+            console.warn(`⚠️ Removendo campo problemático: "${campoErro}" (erro: ${type})`);
 
-          // Tenta identificar qual campo tem esse valor
-          let campoEncontrado = null;
-          if (valorErroSelect) {
-            const valorLimpo = valorErroSelect.trim();
-            for (const [chave, valor] of Object.entries(camposLimpos)) {
-              if (camposSelect.includes(chave) && String(valor).trim() === valorLimpo) {
-                campoEncontrado = chave;
-                console.log(`✅ Campo identificado: "${chave}" com valor "${valor}"`);
-                break;
-              }
-            }
-          }
+            // Remove o campo que causou o erro
+            const camposSemErro = { ...camposFiltrados };
+            delete camposSemErro[campoErro];
 
-          // Se encontrou o campo específico, remove apenas ele
-          if (campoEncontrado) {
-            delete camposLimpos[campoEncontrado];
-            console.log(`🗑️ Removendo campo select com valor inválido: "${campoEncontrado}" (valor: "${valorErroSelect}")`);
-          } else {
-            // Se não conseguir identificar, tenta remover campos específicos baseado no valor
-            const valorLimpo = valorErroSelect ? valorErroSelect.trim() : "";
-
-            // Se o valor for "Cancelado" ou "Pendente", remove "Status de Pagamento"
-            if ((valorLimpo === "Cancelado" || valorLimpo === "Pendente" || valorLimpo === "Pago") && camposLimpos["Status de Pagamento"]) {
-              delete camposLimpos["Status de Pagamento"];
-              console.log(`🗑️ Removendo campo "Status de Pagamento" (valor inválido: "${valorLimpo}")`);
-            }
-            // Se o valor for "Shopify", remove "TAG"
-            else if (valorLimpo === "Shopify" && camposLimpos["TAG"]) {
-              delete camposLimpos["TAG"];
-              console.log(`🗑️ Removendo campo TAG (valor inválido: "Shopify")`);
-            }
-            // Se não conseguir identificar pelo valor, remove campos select comuns
-            else {
-              // Remove "Status de Pagamento" primeiro (mais comum causar esse erro)
-              if (camposLimpos["Status de Pagamento"]) {
-                delete camposLimpos["Status de Pagamento"];
-                console.log(`🗑️ Removendo campo "Status de Pagamento" (valor inválido provável)`);
-              }
-              // Remove TAG se existir
-              if (camposLimpos["TAG"]) {
-                delete camposLimpos["TAG"];
-                console.log(`🗑️ Removendo campo TAG (valor inválido provável)`);
-              }
-              // Remove outros campos select suspeitos
-              camposSelect.forEach(campo => {
-                if (camposLimpos[campo] && campo !== "TAG" && campo !== "Status de Pagamento") {
-                  delete camposLimpos[campo];
-                  console.log(`🗑️ Removendo campo select suspeito: "${campo}"`);
-                }
-              });
-            }
-          }
-        }
-
-        // Remove o campo que causou o erro (para erros de campo desconhecido)
-        if (campoErro && data.error.type === 'UNKNOWN_FIELD_NAME') {
-          delete camposLimpos[campoErro];
-          console.log(`🗑️ Removendo campo desconhecido: "${campoErro}"`);
-          // Também tenta variações comuns
-          camposProblema.forEach(campo => {
-            if (camposLimpos[campo]) {
-              delete camposLimpos[campo];
-            }
-          });
-        } else if (!campoErro && data.error.type === 'UNKNOWN_FIELD_NAME') {
-          // Se não conseguir identificar, remove campos suspeitos
-          camposProblema.forEach(campo => {
-            if (camposLimpos[campo]) {
-              delete camposLimpos[campo];
-            }
-          });
-        }
-
-        // Remove TODOS os campos vazios antes de tentar novamente (para evitar problemas com select)
-        const camposLimposFinal = {};
-        for (const [chave, valor] of Object.entries(camposLimpos)) {
-          if (valor !== "" && valor !== null && valor !== undefined) {
-            camposLimposFinal[chave] = valor;
-          }
-        }
-        camposLimpos = camposLimposFinal;
-
-        console.log("🔄 Tentando com campos:", Object.keys(camposLimpos));
-
-        const retryRecord = {
-          records: [{ fields: camposLimpos }]
-        };
-
-        const retryResponse = await fetch(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify_Vendas`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${process.env.AIRTABLE_API_KEY}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(retryRecord)
-        });
-
-        const retryData = await retryResponse.json();
-        if (retryResponse.ok) {
-          console.log(`✅ Registro salvo sem o(s) campo(s) problemático(s). Campo removido: "${campoErro || 'campos suspeitos'}"`);
-          console.log("💡 Verifique os nomes exatos dos campos no Airtable e ajuste o código se necessário.");
-          return res.status(200).send("OK (alguns campos removidos)");
-        } else {
-          console.error("❌ Erro mesmo após remover campos:", JSON.stringify(retryData, null, 2));
-          if (retryData.error) {
-            if (retryData.error.type === 'UNKNOWN_FIELD_NAME') {
-              const novoCampoErro = retryData.error.message.match(/"([^"]+)"/)?.[1];
-              console.error(`❌ Outro campo problemático encontrado: "${novoCampoErro}"`);
-            } else if (retryData.error.type === 'INVALID_MULTIPLE_CHOICE_OPTIONS') {
-              console.error("❌ Erro com campo select: algum campo select está recebendo valor inválido ou vazio.");
-              console.error("💡 Verifique se os campos 'Teste', 'CRMV' ou outros campos select existem e aceitam valores vazios.");
-            }
+            // Tenta novamente sem esse campo
+            return await tentarSalvarNoAirtable(camposSemErro, tentativa + 1, maxTentativas);
           }
         }
       }
 
-      return res.status(500).send("Erro ao salvar no Airtable");
+      // Se chegou aqui, não conseguiu resolver o erro
+      throw { data, camposEnviados: Object.keys(camposFiltrados) };
     }
 
-    console.log("✅ Cliente salvo no Airtable com ID:", data.records[0].id);
-    res.status(200).send("OK");
+    // Tenta salvar
+    let resultado;
+    try {
+      resultado = await tentarSalvarNoAirtable(camposLimpos);
+      const data = resultado.data;
+
+      console.log("✅ Cliente salvo no Airtable com ID:", data.records[0].id);
+      console.log("📋 Campos salvos:", resultado.camposEnviados.join(", "));
+      res.status(200).send("OK");
+    } catch (err) {
+      // Se foi erro do Airtable
+      if (err.data) {
+        console.error("❌ Erro ao salvar no Airtable após múltiplas tentativas:", JSON.stringify(err.data, null, 2));
+        console.error("📋 Campos que foram tentados:", err.camposEnviados);
+        return res.status(500).send("Erro ao salvar no Airtable");
+      }
+      // Se foi outro tipo de erro
+      console.error("💥 Erro no webhook:", err);
+      res.status(500).send("Erro interno");
+    }
   } catch (err) {
-    console.error("💥 Erro no webhook:", err);
-    res.status(500).send("Erro interno");
+    // Catch para o try externo (erros gerais)
+    console.error("💥 Erro geral no webhook:", err);
+    if (!res.headersSent) {
+      res.status(500).send("Erro interno");
+    }
   }
 });
 
