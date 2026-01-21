@@ -76,16 +76,16 @@ app.post("/webhook/orders/create", async (req, res) => {
     // Apenas "Pago" e "Pendente" são opções válidas no Airtable
     function traduzirStatusPagamento(financialStatus) {
       const statusMap = {
-        "pending": "Pendente",
+        "pending": "Pagamento Pendente",
         "paid": "Pago",
         "authorized": "Pago", // Autorizado = já foi aprovado, considera como pago
         "partially_paid": "Pago", // Parcialmente pago = tem pagamento, considera como pago
-        "refunded": "Pendente", // Reembolsado = não está mais pago
-        "voided": "Pendente", // Cancelado = não está pago
-        "partially_refunded": "Pendente" // Parcialmente reembolsado = não está totalmente pago
+        "refunded": "Pagamento Expirado", // Reembolsado = pagamento expirado
+        "voided": "Pagamento Expirado", // Cancelado = pagamento expirado
+        "partially_refunded": "Pagamento Pendente" // Parcialmente reembolsado = ainda pendente
       };
-      // Retorna apenas "Pago" ou "Pendente" (opções válidas no Airtable)
-      return statusMap[financialStatus] || "Pendente";
+      // Retorna as opções válidas no Airtable: "Pago", "Pagamento Pendente", ou "Pagamento Expirado"
+      return statusMap[financialStatus] || "Pagamento Pendente";
     }
 
     // Função para formatar data para o Airtable
@@ -240,16 +240,25 @@ app.post("/webhook/orders/create", async (req, res) => {
 
     // Monta os campos base com os nomes exatos da tabela Shopify_Vendas
     // Nota: "A" e "#" são apenas indicadores de tipo no Airtable, não fazem parte do nome do campo
+    // Campos confirmados que funcionam: Name, Sobrenome, Telefone, UF, Teste, Pedido
     const camposBase = {
-      Name: customer.first_name || "",  // Campo de texto (indicado por "A" no Airtable)
-      Sobrenome: customer.last_name || "",  // Campo de texto (indicado por "A" no Airtable)
-      Email: customer.email || order.email || "",
-      Telefone: telefone,
-      Cidade: firstAddress.city || "",  // Campo de texto (indicado por "A" no Airtable)
-      UF: firstAddress.province || ""  // Campo de texto (indicado por "A" no Airtable, não "Estado")
-      // Campos que podem não existir ou causar erros - serão adicionados condicionalmente:
-      // "Endereço", "CEP", "Nome da Clínica ou Hospital", "Teste", "Pedido", "Data da Compra"
+      Name: customer.first_name || "",  // ✅ Campo confirmado que funciona
+      Sobrenome: customer.last_name || "",  // ✅ Campo confirmado que funciona
+      Telefone: telefone,  // ✅ Campo confirmado que funciona
+      UF: firstAddress.province || ""  // ✅ Campo confirmado que funciona
+      // Campos que podem não existir na tabela (serão tentados e removidos se não existirem):
+      // Email, Cidade, Endereço, CEP, Nome da Clínica ou Hospital, Data da Compra
     };
+
+    // Adiciona Email apenas se tiver valor (será removido automaticamente se não existir na tabela)
+    if (customer.email || order.email) {
+      camposBase["Email"] = customer.email || order.email;
+    }
+
+    // Adiciona Cidade apenas se tiver valor (será removido automaticamente se não existir na tabela)
+    if (firstAddress.city) {
+      camposBase["Cidade"] = firstAddress.city;
+    }
 
     // Adiciona campos opcionais apenas se tiverem valor
     if (enderecoCompleto) {
@@ -290,9 +299,8 @@ app.post("/webhook/orders/create", async (req, res) => {
       camposBase["Data da Compra"] = dataFormatada;
     }
 
-    // "Status de Pagamento" removido temporariamente pois está causando erros de select inválido
-    // Se o campo existir no Airtable com opções válidas, adicione abaixo:
-    // camposBase["Status de Pagamento"] = traduzirStatusPagamento(order.financial_status);
+    // Adiciona "Status de Pagamento" (as opções válidas são "Pago", "Pagamento Pendente", ou "Pagamento Expirado")
+    camposBase["Status de Pagamento"] = traduzirStatusPagamento(order.financial_status);
 
     // Remove campos vazios antes de enviar (importante para campos select)
     const camposLimpos = removerCamposVazios(camposBase);
@@ -373,11 +381,17 @@ app.post("/webhook/orders/create", async (req, res) => {
       // Lista campos que foram removidos (comparando com campos originais)
       const camposRemovidos = Object.keys(camposLimpos).filter(campo => !resultado.camposEnviados.includes(campo));
       if (camposRemovidos.length > 0) {
-        console.warn("⚠️ Campos removidos por erro:", camposRemovidos.join(", "));
-        console.warn("💡 Para incluir estes campos, verifique os nomes exatos na tabela do Airtable:");
-        console.warn("   - Clique com botão direito no cabeçalho da coluna no Airtable");
-        console.warn("   - Selecione 'Customize field type' ou 'Rename field' para ver o nome exato");
-        console.warn("   - Os campos podem ter espaços extras, acentos ou nomes diferentes");
+        console.warn("⚠️ Campos removidos porque não existem na tabela:", camposRemovidos.join(", "));
+        console.warn("📋 Campos que funcionam atualmente:", resultado.camposEnviados.join(", "));
+        console.warn("");
+        console.warn("💡 Para incluir os campos removidos, você precisa criá-los na tabela 'Shopify_Vendas' do Airtable:");
+        console.warn("   1. Abra a tabela 'Shopify_Vendas' no Airtable");
+        console.warn("   2. Clique no '+' no final das colunas para adicionar novos campos");
+        console.warn("   3. Crie os campos com os nomes EXATOS (case-sensitive):");
+        camposRemovidos.forEach(campo => {
+          console.warn(`      - "${campo}" (tipo: Text ou o tipo apropriado)`);
+        });
+        console.warn("   4. Após criar os campos, os próximos pedidos serão salvos com esses dados");
       }
 
       res.status(200).send("OK");
