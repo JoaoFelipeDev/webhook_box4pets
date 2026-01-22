@@ -73,19 +73,19 @@ app.post("/webhook/orders/create", async (req, res) => {
       "";
 
     // Função para converter status de pagamento para português
-    // Apenas "Pago" e "Pendente" são opções válidas no Airtable
+    // Campo é do tipo texto no Airtable, então pode receber qualquer valor
     function traduzirStatusPagamento(financialStatus) {
       const statusMap = {
-        "pending": "Pagamento Pendente",
+        "pending": "Pendente",
         "paid": "Pago",
-        "authorized": "Pago", // Autorizado = já foi aprovado, considera como pago
-        "partially_paid": "Pago", // Parcialmente pago = tem pagamento, considera como pago
-        "refunded": "Pagamento Expirado", // Reembolsado = pagamento expirado
-        "voided": "Pagamento Expirado", // Cancelado = pagamento expirado
-        "partially_refunded": "Pagamento Pendente" // Parcialmente reembolsado = ainda pendente
+        "authorized": "Autorizado", // Autorizado = já foi aprovado
+        "partially_paid": "Parcialmente Pago", // Parcialmente pago
+        "refunded": "Reembolsado", // Reembolsado
+        "voided": "Cancelado", // Cancelado
+        "partially_refunded": "Parcialmente Reembolsado" // Parcialmente reembolsado
       };
-      // Retorna as opções válidas no Airtable: "Pago", "Pagamento Pendente", ou "Pagamento Expirado"
-      return statusMap[financialStatus] || "Pagamento Pendente";
+      // Retorna o status traduzido ou o status original se não estiver no mapa
+      return statusMap[financialStatus] || financialStatus || "Pendente";
     }
 
     // Função para formatar data para o Airtable
@@ -299,7 +299,7 @@ app.post("/webhook/orders/create", async (req, res) => {
       camposBase["Data da Compra"] = dataFormatada;
     }
 
-    // Adiciona "Status de Pagamento" (as opções válidas são "Pago", "Pagamento Pendente", ou "Pagamento Expirado")
+    // Adiciona "Status de Pagamento" (campo de texto livre no Airtable)
     camposBase["Status de Pagamento"] = traduzirStatusPagamento(order.financial_status);
 
     // Remove campos vazios antes de enviar (importante para campos select)
