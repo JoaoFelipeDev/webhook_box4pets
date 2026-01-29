@@ -151,96 +151,70 @@ app.post("/webhook/orders/create", async (req, res) => {
       return null;
     }
 
-    // Função para identificar o tipo de teste válido baseado nos produtos do pedido
-    function obterTesteValido(order) {
-      const testesValidos = [
-        "Saúde - Identificação de Doenças Genéticas",
-        "Origem - Identificação de Raças",
-        "Painel Saúde + Painel Origem",
-        "Perfil de SNP/DNA (Teste de Paternidade)",
-        "Teste Genético ALKC RI (registro inicial): Identificação de Raça - Origem",
-        "Teste Genético ALKC: Identificação de Doenças, Traços e Perfil de DNA"
-      ];
+    // Lista de testes válidos e mapeamento por padrão (usado por obterTesteValido e obterTesteDeItem)
+    const testesValidos = [
+      "Saúde - Identificação de Doenças Genéticas",
+      "Origem - Identificação de Raças",
+      "Painel Saúde + Painel Origem",
+      "Perfil de SNP/DNA (Teste de Paternidade)",
+      "Teste Genético ALKC RI (registro inicial): Identificação de Raça - Origem",
+      "Teste Genético ALKC: Identificação de Doenças, Traços e Perfil de DNA"
+    ];
+    const mapeamentoTestes = [
+      { padrao: /alkc\s+ri|registro\s+inicial/i, teste: "Teste Genético ALKC RI (registro inicial): Identificação de Raça - Origem" },
+      { padrao: /alkc/i, teste: "Teste Genético ALKC: Identificação de Doenças, Traços e Perfil de DNA" },
+      { padrao: /paternidade|snp\/dna|perfil\s+de\s+snp/i, teste: "Perfil de SNP/DNA (Teste de Paternidade)" },
+      { padrao: /painel\s+saúde.*painel\s+origem|painel\s+origem.*painel\s+saúde|ultra.*raças.*doenças|raças.*doenças/i, teste: "Painel Saúde + Painel Origem" },
+      { padrao: /saúde.*doenças\s+genéticas|doenças\s+genéticas|avançado.*doenças/i, teste: "Saúde - Identificação de Doenças Genéticas" },
+      { padrao: /origem.*raças|identificação\s+de\s+raças/i, teste: "Origem - Identificação de Raças" }
+    ];
 
-      // Mapeamento de palavras-chave dos produtos para testes válidos
-      // Ordem importa: verifica primeiro padrões mais específicos
-      const mapeamentoTestes = [
-        // Padrões específicos primeiro
-        { padrao: /alkc\s+ri|registro\s+inicial/i, teste: "Teste Genético ALKC RI (registro inicial): Identificação de Raça - Origem" },
-        { padrao: /alkc/i, teste: "Teste Genético ALKC: Identificação de Doenças, Traços e Perfil de DNA" },
-        { padrao: /paternidade|snp\/dna|perfil\s+de\s+snp/i, teste: "Perfil de SNP/DNA (Teste de Paternidade)" },
-        { padrao: /painel\s+saúde.*painel\s+origem|painel\s+origem.*painel\s+saúde|ultra.*raças.*doenças|raças.*doenças/i, teste: "Painel Saúde + Painel Origem" },
-        { padrao: /saúde.*doenças\s+genéticas|doenças\s+genéticas|avançado.*doenças/i, teste: "Saúde - Identificação de Doenças Genéticas" },
-        { padrao: /origem.*raças|identificação\s+de\s+raças/i, teste: "Origem - Identificação de Raças" }
-      ];
-
-      // Função auxiliar para verificar padrões
-      function verificarPadroes(texto) {
-        if (!texto) return null;
-        const textoLower = texto.toLowerCase();
-
-        // Verifica correspondência exata primeiro
-        for (const testeValido of testesValidos) {
-          if (textoLower === testeValido.toLowerCase()) {
-            return testeValido;
-          }
-        }
-
-        // Verifica padrões usando regex (ordem importa - mais específicos primeiro)
-        for (const { padrao, teste } of mapeamentoTestes) {
-          if (padrao.test(texto)) {
-            return teste;
-          }
-        }
-
-        return null;
+    function verificarPadroesTeste(texto) {
+      if (!texto) return null;
+      const textoLower = texto.toLowerCase();
+      for (const testeValido of testesValidos) {
+        if (textoLower === testeValido.toLowerCase()) return testeValido;
       }
+      for (const { padrao, teste } of mapeamentoTestes) {
+        if (padrao.test(texto)) return teste;
+      }
+      return null;
+    }
 
-      // Verifica tags do pedido primeiro
+    // Retorna o teste válido para um único item do pedido (nome/variante do produto)
+    function obterTesteDeItem(item) {
+      const nome = (item.name || item.title || "").trim();
+      if (nome) {
+        const porNome = verificarPadroesTeste(nome);
+        if (porNome) return porNome;
+      }
+      const variante = (item.variant_title || "").trim();
+      if (variante) return verificarPadroesTeste(variante);
+      return null;
+    }
+
+    // Retorna um único teste para o pedido inteiro (usado quando não há line_items ou como fallback)
+    function obterTesteValido(order) {
       if (order.tags) {
         const tagsArray = order.tags.split(",").map(tag => tag.trim());
         for (const tag of tagsArray) {
-          const testeEncontrado = verificarPadroes(tag);
-          if (testeEncontrado) {
-            return testeEncontrado;
-          }
+          const t = verificarPadroesTeste(tag);
+          if (t) return t;
         }
       }
-
-      // Verifica nos nomes dos produtos (line_items)
-      if (order.line_items && Array.isArray(order.line_items)) {
-        // Verifica cada produto individualmente
+      if (order.line_items && order.line_items.length > 0) {
         for (const item of order.line_items) {
-          const nomeProduto = (item.name || item.title || "").trim();
-          if (nomeProduto) {
-            const testeEncontrado = verificarPadroes(nomeProduto);
-            if (testeEncontrado) {
-              return testeEncontrado;
-            }
-          }
+          const t = obterTesteDeItem(item);
+          if (t) return t;
         }
-
-        // Se não encontrou em produtos individuais, verifica todos juntos
-        const todosProdutos = order.line_items
-          .map(item => (item.name || item.title || "").trim())
-          .filter(Boolean)
-          .join(" ");
-
-        if (todosProdutos) {
-          const testeEncontrado = verificarPadroes(todosProdutos);
-          if (testeEncontrado) {
-            return testeEncontrado;
-          }
-        }
+        const todos = order.line_items.map(i => (i.name || i.title || "").trim()).filter(Boolean).join(" ");
+        if (todos) return verificarPadroesTeste(todos);
       }
-
-      // Se não encontrou teste válido, retorna null
       return null;
     }
 
     // Monta os campos base com os nomes exatos da tabela Shopify_Vendas
-    // Nota: "A" e "#" são apenas indicadores de tipo no Airtable, não fazem parte do nome do campo
-    // Campos confirmados que funcionam: Name, Sobrenome, Telefone, UF, Teste, Pedido
+    // Número do pedido e data: "A Pedido" e "A Data do Pedido"
     const camposBase = {
       Name: customer.first_name || "",  // ✅ Campo confirmado que funciona
       Sobrenome: customer.last_name || "",  // ✅ Campo confirmado que funciona
@@ -280,30 +254,34 @@ app.post("/webhook/orders/create", async (req, res) => {
       console.log("ℹ️ Nenhuma tag válida encontrada no pedido. Campo TAG não será enviado.");
     }
 
-    // Adiciona campo Teste apenas se houver um teste válido no pedido
-    const testeValido = obterTesteValido(order);
-    if (testeValido) {
-      camposBase["Teste"] = testeValido;
-      console.log(`🧪 Teste válido encontrado: "${testeValido}"`);
-    } else {
-      console.log("ℹ️ Nenhum teste válido encontrado no pedido. Campo Teste não será enviado.");
-    }
-
-    // Adiciona campo "Pedido" (campo numérico no Airtable, indicado por "#" no Airtable)
+    // Adiciona número do pedido e data (nomes exatos da tabela Airtable: "A Pedido" e "A Data do Pedido")
     if (order.order_number) {
-      camposBase["Pedido"] = Number(order.order_number) || parseInt(order.order_number, 10);
+      camposBase["A Pedido"] = Number(order.order_number) || parseInt(order.order_number, 10);
     }
-
-    // Adiciona o campo de data
     if (dataFormatada) {
-      camposBase["Data da Compra"] = dataFormatada;
+      camposBase["A Data do Pedido"] = dataFormatada;
     }
 
     // Adiciona "Status de Pagamento" (campo de texto livre no Airtable)
     camposBase["Status de Pagamento"] = traduzirStatusPagamento(order.financial_status);
 
-    // Remove campos vazios antes de enviar (importante para campos select)
-    const camposLimpos = removerCamposVazios(camposBase);
+    // Um registro no Airtable por item do pedido (cada teste = uma linha), com mesmo número e data
+    const registrosParaSalvar = [];
+    if (order.line_items && order.line_items.length > 0) {
+      for (const item of order.line_items) {
+        const teste = obterTesteDeItem(item);
+        const campos = { ...camposBase };
+        if (teste) {
+          campos["Teste"] = teste;
+          console.log(`🧪 Item "${item.name || item.title}": teste "${teste}"`);
+        }
+        registrosParaSalvar.push(campos);
+      }
+    } else {
+      const testeFallback = obterTesteValido(order);
+      if (testeFallback) camposBase["Teste"] = testeFallback;
+      registrosParaSalvar.push(camposBase);
+    }
 
     // Função recursiva para tentar salvar no Airtable, removendo campos problemáticos automaticamente
     async function tentarSalvarNoAirtable(campos, tentativa = 0, maxTentativas = 10) {
@@ -369,40 +347,31 @@ app.post("/webhook/orders/create", async (req, res) => {
       throw { data, camposEnviados: Object.keys(camposFiltrados) };
     }
 
-    // Tenta salvar
-    let resultado;
+    // Salva um registro no Airtable por item do pedido
     try {
-      resultado = await tentarSalvarNoAirtable(camposLimpos);
-      const data = resultado.data;
+      for (let i = 0; i < registrosParaSalvar.length; i++) {
+        const camposLimpos = removerCamposVazios(registrosParaSalvar[i]);
+        const resultado = await tentarSalvarNoAirtable(camposLimpos);
+        const data = resultado.data;
 
-      console.log("✅ Cliente salvo no Airtable com ID:", data.records[0].id);
-      console.log("📋 Campos salvos:", resultado.camposEnviados.join(", "));
+        console.log(`✅ Registro ${i + 1}/${registrosParaSalvar.length} salvo no Airtable, ID:`, data.records[0].id);
+        console.log("📋 Campos salvos:", resultado.camposEnviados.join(", "));
 
-      // Lista campos que foram removidos (comparando com campos originais)
-      const camposRemovidos = Object.keys(camposLimpos).filter(campo => !resultado.camposEnviados.includes(campo));
-      if (camposRemovidos.length > 0) {
-        console.warn("⚠️ Campos removidos porque não existem na tabela:", camposRemovidos.join(", "));
-        console.warn("📋 Campos que funcionam atualmente:", resultado.camposEnviados.join(", "));
-        console.warn("");
-        console.warn("💡 Para incluir os campos removidos, você precisa criá-los na tabela 'Shopify_Vendas' do Airtable:");
-        console.warn("   1. Abra a tabela 'Shopify_Vendas' no Airtable");
-        console.warn("   2. Clique no '+' no final das colunas para adicionar novos campos");
-        console.warn("   3. Crie os campos com os nomes EXATOS (case-sensitive):");
-        camposRemovidos.forEach(campo => {
-          console.warn(`      - "${campo}" (tipo: Text ou o tipo apropriado)`);
-        });
-        console.warn("   4. Após criar os campos, os próximos pedidos serão salvos com esses dados");
+        const camposRemovidos = Object.keys(camposLimpos).filter(campo => !resultado.camposEnviados.includes(campo));
+        if (camposRemovidos.length > 0) {
+          console.warn("⚠️ Campos removidos (não existem na tabela):", camposRemovidos.join(", "));
+        }
       }
-
+      if (registrosParaSalvar.length > 1) {
+        console.log(`✅ Pedido #${order.order_number}: ${registrosParaSalvar.length} testes salvos (número e data em todos).`);
+      }
       res.status(200).send("OK");
     } catch (err) {
-      // Se foi erro do Airtable
       if (err.data) {
-        console.error("❌ Erro ao salvar no Airtable após múltiplas tentativas:", JSON.stringify(err.data, null, 2));
-        console.error("📋 Campos que foram tentados:", err.camposEnviados);
+        console.error("❌ Erro ao salvar no Airtable:", JSON.stringify(err.data, null, 2));
+        console.error("📋 Campos tentados:", err.camposEnviados);
         return res.status(500).send("Erro ao salvar no Airtable");
       }
-      // Se foi outro tipo de erro
       console.error("💥 Erro no webhook:", err);
       res.status(500).send("Erro interno");
     }
