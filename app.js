@@ -14,6 +14,50 @@ app.use(bodyParser.json({
   }
 }));
 
+function escapeAirtableFormulaValue(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+// Verifica se já existe registro com o mesmo email (e critérios extras, conforme DEDUP_MODE)
+async function registroDuplicadoExiste(campos) {
+  const email = campos.Email;
+  const numeroPedido = campos["A Pedido"];
+  const teste = campos.Teste;
+  const dedupMode = process.env.DEDUP_MODE || "email_order_test";
+
+  let formula;
+  if (dedupMode === "email") {
+    if (!email) return false;
+    formula = `{Email}='${escapeAirtableFormulaValue(email)}'`;
+  } else {
+    if (!email || numeroPedido == null) return false;
+    const criterios = [
+      `{Email}='${escapeAirtableFormulaValue(email)}'`,
+      `{A Pedido}=${Number(numeroPedido)}`
+    ];
+    if (teste) {
+      criterios.push(`{Teste}='${escapeAirtableFormulaValue(teste)}'`);
+    }
+    formula = `AND(${criterios.join(",")})`;
+  }
+
+  const url = new URL(`https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Shopify_Vendas`);
+  url.searchParams.set("filterByFormula", formula);
+  url.searchParams.set("maxRecords", "1");
+
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}` }
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    console.warn("⚠️ Erro ao verificar duplicidade no Airtable:", JSON.stringify(data));
+    return false;
+  }
+
+  return (data.records?.length ?? 0) > 0;
+}
+
 // Função opcional para validar o webhook do Shopify
 function verifyShopifyWebhook(req) {
   const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
@@ -349,10 +393,26 @@ app.post("/webhook/orders/create", async (req, res) => {
 
     // Salva um registro no Airtable por item do pedido
     try {
+      let salvos = 0;
+      let ignorados = 0;
+
       for (let i = 0; i < registrosParaSalvar.length; i++) {
         const camposLimpos = removerCamposVazios(registrosParaSalvar[i]);
+
+        if (await registroDuplicadoExiste(camposLimpos)) {
+          ignorados++;
+          console.log(
+            `⏭️ Registro ${i + 1}/${registrosParaSalvar.length} ignorado (duplicado):`,
+            `Email=${camposLimpos.Email || "—"},`,
+            `Pedido=${camposLimpos["A Pedido"] ?? "—"},`,
+            `Teste=${camposLimpos.Teste || "—"}`
+          );
+          continue;
+        }
+
         const resultado = await tentarSalvarNoAirtable(camposLimpos);
         const data = resultado.data;
+        salvos++;
 
         console.log(`✅ Registro ${i + 1}/${registrosParaSalvar.length} salvo no Airtable, ID:`, data.records[0].id);
         console.log("📋 Campos salvos:", resultado.camposEnviados.join(", "));
@@ -362,8 +422,12 @@ app.post("/webhook/orders/create", async (req, res) => {
           console.warn("⚠️ Campos removidos (não existem na tabela):", camposRemovidos.join(", "));
         }
       }
-      if (registrosParaSalvar.length > 1) {
-        console.log(`✅ Pedido #${order.order_number}: ${registrosParaSalvar.length} testes salvos (número e data em todos).`);
+
+      if (ignorados > 0) {
+        console.log(`ℹ️ ${ignorados} registro(s) ignorado(s) por duplicidade.`);
+      }
+      if (salvos > 1) {
+        console.log(`✅ Pedido #${order.order_number}: ${salvos} testes salvos (número e data em todos).`);
       }
       res.status(200).send("OK");
     } catch (err) {
